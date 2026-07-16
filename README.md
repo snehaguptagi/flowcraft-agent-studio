@@ -1,98 +1,85 @@
-# vinext-starter
+# Flowcraft
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+Flowcraft is a visual AI workflow studio for building, configuring, validating, and testing generative AI workflows without writing orchestration code.
 
-## Prerequisites
+The current MVP includes an interactive canvas and deterministic sandbox execution, so it runs without API keys or external AI services.
 
-- Node.js `>=22.13.0`
+## Product definition
 
-## Quick Start
+Read the [Product Requirements Document](./PRD.md) before changing product scope or behavior. It defines the goals, non-goals, requirements, data model, acceptance criteria, and release plan.
+
+## Features
+
+- Searchable Input, AI, Logic, and Output node library
+- Drag-and-drop canvas with movable nodes and visible connections
+- Node configuration for prompts, models, variables, and input values
+- Graph validation for missing configuration, disconnected nodes, and cycles
+- Dependency-ordered sandbox execution with live node status
+- Execution logs, intermediate outputs, errors, latency, and run duration
+- Undo/redo, zoom, pan, fit, minimap, templates, and dark mode
+- Browser autosave plus JSON import and export
+
+## Run locally
+
+### Requirements
+
+- Node.js 22.13 or newer
+- npm
+
+### Setup
 
 ```bash
-npm install
+git clone <repository-url>
+cd flowcraft-ai-workflow-studio
+npm ci
 npm run dev
+```
+
+Open the local URL printed by the development server, normally [http://localhost:3000](http://localhost:3000).
+
+No environment variables are required for the MVP.
+
+## Verification
+
+```bash
 npm run build
+npm run lint
+npm test
 ```
 
-This starter does not use `wrangler.jsonc`.
+## Useful commands
 
-## Included Shape
+- `npm run dev` — start the local development server
+- `npm run build` — create the production build
+- `npm run lint` — run static code checks
+- `npm test` — build and run the server-rendered smoke test
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## Project structure
 
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```text
+app/
+  page.tsx          Main interactive workflow builder
+  globals.css       Product design system and responsive layout
+  layout.tsx        Document shell and social metadata
+public/
+  og.png            Social sharing artwork
+tests/
+  rendered-html.test.mjs
+.openai/
+  hosting.json      Sites project configuration
+PRD.md              Product source of truth
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## Current architecture
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- React 19 and TypeScript
+- vinext and Vite
+- Client-side workflow engine
+- Browser local storage for device-local drafts
+- Cloudflare-compatible deployment output
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+This repository does not yet contain live provider integrations. Production LLM calls, secrets, durable storage, authentication, and multi-user collaboration are intentionally deferred in the PRD.
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## Deployed MVP
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+[Open the private Flowcraft deployment](https://flowcraft-ai-workflow-studio.pwc-genai-la-3031.chatgpt.site)
