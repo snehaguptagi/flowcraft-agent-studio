@@ -34,6 +34,29 @@ class ResearchSource(BaseModel):
     excerpt: str
 
 
+class DocumentInput(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=500)
+    mimeType: str = Field(default="text/plain", max_length=200)
+    content: str = Field(min_length=1, max_length=100_000)
+
+
+class DocumentSection(BaseModel):
+    documentId: str
+    documentName: str
+    section: str
+    text: str
+    index: int = Field(ge=0)
+
+
+class DocumentCitation(BaseModel):
+    documentId: str
+    documentName: str
+    section: str
+    quote: str
+    label: str
+
+
 class ResearchRunRequest(BaseModel):
     goal: str = Field(min_length=1, max_length=2_000)
     role: str = Field(default="Research specialist", max_length=500)
@@ -59,6 +82,33 @@ class ResearchRunResult(BaseModel):
     confidence: Literal["high", "medium", "low", "not-assessed"] = "not-assessed"
 
 
+class DocumentRunRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=2_000)
+    role: str = Field(default="Document specialist", max_length=500)
+    instructions: str = Field(min_length=1, max_length=8_000)
+    input: str = Field(default="", max_length=20_000)
+    documents: list[DocumentInput] = Field(min_length=1, max_length=5)
+    allowedTools: list[str] = Field(default_factory=list)
+    memory: str = Field(default="", max_length=10_000)
+    maxSteps: int = Field(default=4, ge=1, le=12)
+    timeoutSeconds: int = Field(default=90, ge=1, le=600)
+    approvalPolicy: Literal["never", "sensitive", "always"] = "sensitive"
+    completionCondition: str = Field(default="Return an answer with citations", max_length=2_000)
+    outputFormat: str = Field(default="Answer with document citations", max_length=1_000)
+
+
+class DocumentRunResult(BaseModel):
+    runId: str
+    runtime: Literal["langgraph"] = "langgraph"
+    status: AgentStatus
+    output: str
+    trace: list[TraceEvent]
+    stepsUsed: int = Field(ge=0)
+    citations: list[DocumentCitation] = Field(default_factory=list)
+    documentCount: int = Field(ge=0)
+    confidence: Literal["high", "medium", "low", "not-assessed"] = "not-assessed"
+
+
 class AgentCatalogItem(BaseModel):
     id: str
     name: str
@@ -71,5 +121,5 @@ class AgentCatalogItem(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: str = "flowcraft-agent-runtime"
-    version: str = "0.1.0"
+    version: str = "0.2.0"
     langsmithTracing: bool

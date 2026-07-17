@@ -13,8 +13,11 @@ import {
 import {
   AgentPhase,
   AgentTraceEvent,
+  DOCUMENT_AGENT_TOOLS,
   RESEARCH_AGENT_TOOLS,
+  runDocumentAgent,
   runResearchAgent,
+  type DocumentInput,
 } from "./lib/agent-runtime";
 
 type NodeCategory = "Input" | "Agent" | "AI" | "Logic" | "Output";
@@ -49,6 +52,9 @@ type NodeConfig = {
   approvalPolicy?: "never" | "sensitive" | "always";
   completionCondition?: string;
   outputFormat?: string;
+  documentName?: string;
+  documentMimeType?: DocumentInput["mimeType"];
+  documentContent?: string;
 };
 
 type WorkflowNode = {
@@ -101,7 +107,19 @@ const PORT_Y = 58;
 
 const catalog: CatalogItem[] = [
   { type: "text-input", name: "Text input", category: "Input", description: "Collect a text value", mark: "T", config: { value: "How can I reset a locked workspace?" } },
-  { type: "file-upload", name: "File upload", category: "Input", description: "Accept PDF, DOCX or TXT", mark: "F", config: { value: "knowledge-base.pdf" } },
+  {
+    type: "file-upload",
+    name: "Text document",
+    category: "Input",
+    description: "Load TXT, Markdown, CSV or JSON",
+    mark: "F",
+    config: {
+      value: "workspace-policy.txt",
+      documentName: "workspace-policy.txt",
+      documentMimeType: "text/plain",
+      documentContent: "Workspace Access Policy\n\nRecovery steps\nUsers can restore access from Workspace settings under Security by selecting Restore access.\n\nOwner escalation\nIf settings are unavailable, a workspace owner can initiate account recovery for the user.\n\nVerification window\nThe recovery verification email must be completed within 30 minutes.",
+    },
+  },
   { type: "url-input", name: "URL input", category: "Input", description: "Fetch content from a URL", mark: "↗", config: { value: "https://docs.example.com" } },
   {
     type: "research-agent",
@@ -125,7 +143,28 @@ const catalog: CatalogItem[] = [
       outputFormat: "Answer, findings, sources, confidence",
     },
   },
-  { type: "document-agent", name: "Document Agent", category: "Agent", description: "Read, compare and cite documents", mark: "DA", availability: "planned", config: {} },
+  {
+    type: "document-agent",
+    name: "Document Agent",
+    category: "Agent",
+    description: "Read, compare and cite text documents",
+    mark: "DA",
+    availability: "ready",
+    config: {
+      role: "Evidence-grounded document analyst",
+      goal: "Answer the incoming question using only the attached documents and preserve citations.",
+      instructions: "Read only approved documents. Keep document and section provenance. Cite every material claim and report when evidence is missing.",
+      provider: "OpenAI",
+      model: "GPT-4.1 mini",
+      allowedTools: ["document-reader", "text-extractor", "section-finder", "citation-collector"],
+      memory: "Working memory for document evidence in the current run",
+      maxSteps: 4,
+      timeoutSeconds: 90,
+      approvalPolicy: "sensitive",
+      completionCondition: "A supported answer includes document and section citations",
+      outputFormat: "Answer, evidence, citations, confidence",
+    },
+  },
   { type: "data-agent", name: "Data Analyst", category: "Agent", description: "Analyze tables, metrics and anomalies", mark: "DX", availability: "planned", config: {} },
   { type: "writer-agent", name: "Writer Agent", category: "Agent", description: "Draft evidence-grounded content", mark: "WA", availability: "planned", config: {} },
   { type: "supervisor-agent", name: "Supervisor", category: "Agent", description: "Delegate work to specialist agents", mark: "SA", availability: "planned", config: {} },
@@ -231,6 +270,10 @@ const initialEdges: WorkflowEdge[] = [
 
 const categoryOrder: NodeCategory[] = ["Input", "Agent", "AI", "Logic", "Output"];
 
+function toolsForAgent(type: string) {
+  return type === "document-agent" ? DOCUMENT_AGENT_TOOLS : RESEARCH_AGENT_TOOLS;
+}
+
 function cloneSnapshot(nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot {
   return {
     nodes: nodes.map((node) => ({
@@ -284,7 +327,7 @@ export default function Home() {
   const [pan, setPan] = useState({ x: 28, y: 30 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Hybrid workflow and Research Agent are ready in sandbox mode." },
+    { id: "ready", time: "Ready", level: "info", message: "Research and Document agents are ready with safe browser fallbacks." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(true);
@@ -493,6 +536,47 @@ export default function Home() {
     );
   }, [selectedNode]);
 
+  const loadDocumentFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedNode || selectedNode.type !== "file-upload") return;
+    const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
+    const mimeByExtension: Record<string, DocumentInput["mimeType"]> = {
+      txt: "text/plain",
+      md: "text/markdown",
+      markdown: "text/markdown",
+      csv: "text/csv",
+      json: "application/json",
+    };
+    const mimeType = mimeByExtension[extension];
+    if (!mimeType) {
+      showToast("Agent 2 currently accepts TXT, Markdown, CSV, or JSON text");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 100_000) {
+      showToast("Choose a text document smaller than 100 KB for this milestone");
+      event.target.value = "";
+      return;
+    }
+    const content = await file.text();
+    if (!content.trim() || content.length > 100_000) {
+      showToast("The document is empty or exceeds the 100,000-character limit");
+      event.target.value = "";
+      return;
+    }
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        value: file.name,
+        documentName: file.name,
+        documentMimeType: mimeType,
+        documentContent: content,
+      },
+    });
+    showToast(`${file.name} loaded`);
+    event.target.value = "";
+  };
+
   const connectTo = useCallback((targetId: string) => {
     if (!connectFrom || connectFrom === targetId) {
       setConnectFrom(null);
@@ -542,6 +626,9 @@ export default function Home() {
         issues.push(`${node.name} needs an input connection.`);
       }
       if (node.type === "text-input" && !node.config.value?.trim()) issues.push(`${node.name} is missing text.`);
+      if (node.type === "file-upload" && !node.config.documentContent?.trim()) {
+        issues.push(`${node.name} needs document text.`);
+      }
       if (node.type === "prompt" && !node.config.prompt?.trim()) issues.push(`${node.name} is missing a prompt.`);
       if (node.type === "llm" && !node.config.model?.trim()) issues.push(`${node.name} is missing a model.`);
       if (node.category === "Agent") {
@@ -552,7 +639,8 @@ export default function Home() {
         if (!node.config.allowedTools?.length) issues.push(`${node.name} needs at least one allowed tool.`);
         if (!node.config.maxSteps || node.config.maxSteps < 1) issues.push(`${node.name} needs a valid step limit.`);
         if (!node.config.timeoutSeconds || node.config.timeoutSeconds < 1) issues.push(`${node.name} needs a valid timeout.`);
-        const knownToolIds = new Set(RESEARCH_AGENT_TOOLS.map((tool) => tool.id));
+        const agentTools = toolsForAgent(node.type);
+        const knownToolIds = new Set(agentTools.map((tool) => tool.id));
         node.config.allowedTools?.forEach((toolId) => {
           if (!knownToolIds.has(toolId)) issues.push(`${node.name} references unavailable tool “${toolId}”.`);
         });
@@ -560,6 +648,18 @@ export default function Home() {
           RESEARCH_AGENT_TOOLS.forEach((tool) => {
             if (!node.config.allowedTools?.includes(tool.id)) issues.push(`${node.name} requires ${tool.name}.`);
           });
+        }
+        if (node.type === "document-agent") {
+          DOCUMENT_AGENT_TOOLS.forEach((tool) => {
+            if (!node.config.allowedTools?.includes(tool.id)) issues.push(`${node.name} requires ${tool.name}.`);
+          });
+          const documentInputs = edges
+            .filter((edge) => edge.to === node.id)
+            .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
+            .filter((candidate) => candidate?.type === "file-upload");
+          if (!documentInputs.some((candidate) => candidate?.config.documentContent?.trim())) {
+            issues.push(`${node.name} needs a connected text document.`);
+          }
         }
       }
     });
@@ -590,9 +690,10 @@ export default function Home() {
     const input = inputs.filter(Boolean).join("\n\n");
     switch (node.type) {
       case "text-input":
-      case "file-upload":
       case "url-input":
         return node.config.value || "Input received";
+      case "file-upload":
+        return node.config.documentContent || "Document text required";
       case "rag":
         return "Matched 3 help-center passages: Workspace access, owner recovery, and security verification.";
       case "prompt":
@@ -674,6 +775,10 @@ export default function Home() {
       addLog({ level: "info", node: node.name, message: "Node started" });
       const nodeStarted = performance.now();
       const inputValues = edges.filter((edge) => edge.to === id).map((edge) => outputs.get(edge.from) ?? "");
+      const inputNodes = edges
+        .filter((edge) => edge.to === id)
+        .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
+        .filter((candidate): candidate is WorkflowNode => Boolean(candidate));
       let output: string;
       let finalStatus: NodeStatus = "completed";
 
@@ -692,6 +797,66 @@ export default function Home() {
             approvalPolicy: node.config.approvalPolicy ?? "sensitive",
             completionCondition: node.config.completionCondition ?? "Return a supported answer",
             outputFormat: node.config.outputFormat ?? "Answer with sources",
+          },
+          {
+            onPhase: (phase) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id ? { ...candidate, status: phaseToNodeStatus(phase) } : candidate
+              )));
+            },
+            onTrace: (event) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id
+                  ? { ...candidate, agentTrace: [...(candidate.agentTrace ?? []), event] }
+                  : candidate
+              )));
+              addLog({
+                level: event.kind === "error" ? "error" : event.kind === "output" ? "success" : "info",
+                node: node.name,
+                message: `${event.title} · ${event.summary.slice(0, 100)}`,
+              });
+            },
+          },
+        );
+        output = result.output;
+        finalStatus = result.status;
+        addLog({
+          level: result.fallbackReason ? "info" : "success",
+          node: node.name,
+          message: result.fallbackReason
+            ? "Agent service unavailable; completed with the safe browser sandbox"
+            : result.runtime === "langgraph"
+              ? "Executed by the LangGraph agent service"
+              : "Executed by the browser sandbox",
+        });
+      } else if (node.type === "document-agent") {
+        setConsoleTab("trace");
+        const documents = inputNodes
+          .filter((candidate) => candidate.type === "file-upload" && candidate.config.documentContent?.trim())
+          .map<DocumentInput>((candidate) => ({
+            id: candidate.id,
+            name: candidate.config.documentName ?? candidate.config.value ?? "document.txt",
+            mimeType: candidate.config.documentMimeType ?? "text/plain",
+            content: candidate.config.documentContent ?? "",
+          }));
+        const result = await runDocumentAgent(
+          {
+            goal: node.config.goal ?? "",
+            role: node.config.role ?? "",
+            instructions: node.config.instructions ?? "",
+            input: inputNodes
+              .filter((candidate) => candidate.type !== "file-upload")
+              .map((candidate) => outputs.get(candidate.id) ?? "")
+              .filter(Boolean)
+              .join("\n\n"),
+            documents,
+            allowedTools: node.config.allowedTools ?? [],
+            memory: node.config.memory ?? "",
+            maxSteps: node.config.maxSteps ?? 1,
+            timeoutSeconds: node.config.timeoutSeconds ?? 60,
+            approvalPolicy: node.config.approvalPolicy ?? "sensitive",
+            completionCondition: node.config.completionCondition ?? "Return a cited answer",
+            outputFormat: node.config.outputFormat ?? "Answer with document citations",
           },
           {
             onPhase: (phase) => {
@@ -999,7 +1164,7 @@ export default function Home() {
                         <p>{node.config.prompt}</p>
                       ) : node.type === "text-input" ? (
                         <p>{node.config.value}</p>
-                      ) : node.type === "research-agent" ? (
+                      ) : node.category === "Agent" ? (
                         <p>{node.config.goal}</p>
                       ) : node.type === "rag" ? (
                         <><span>{node.config.model}</span><span>Top 3</span></>
@@ -1098,7 +1263,7 @@ export default function Home() {
                     <div className="form-section">
                       <div className="form-section-title"><span>Tool permissions</span><span>{selectedNode.config.allowedTools?.length ?? 0} allowed</span></div>
                       <div className="tool-permission-list">
-                        {RESEARCH_AGENT_TOOLS.map((tool) => {
+                        {toolsForAgent(selectedNode.type).map((tool) => {
                           const isAllowed = selectedNode.config.allowedTools?.includes(tool.id) ?? false;
                           return (
                             <label className={`tool-permission ${isAllowed ? "is-allowed" : ""}`} key={tool.id}>
@@ -1157,7 +1322,40 @@ export default function Home() {
                   </div>
                 )}
 
-                {selectedNode.config.value !== undefined && (
+                {selectedNode.type === "file-upload" && (
+                  <div className="form-section">
+                    <div className="form-section-title"><span>Document text</span><span>Agent 2</span></div>
+                    <label className="field-label">
+                      Choose a text document
+                      <input
+                        type="file"
+                        accept=".txt,.md,.markdown,.csv,.json,text/plain,text/markdown,text/csv,application/json"
+                        onChange={loadDocumentFile}
+                      />
+                      <small className="field-help">TXT, Markdown, CSV, or JSON · maximum 100 KB · processed only for the current run.</small>
+                    </label>
+                    <label className="field-label">
+                      Document name
+                      <input
+                        value={selectedNode.config.documentName ?? ""}
+                        onChange={(event) => {
+                          updateConfig("documentName", event.target.value);
+                          updateConfig("value", event.target.value);
+                        }}
+                      />
+                    </label>
+                    <label className="field-label">
+                      Extracted text
+                      <textarea
+                        rows={10}
+                        value={selectedNode.config.documentContent ?? ""}
+                        onChange={(event) => updateConfig("documentContent", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {selectedNode.config.value !== undefined && selectedNode.type !== "file-upload" && (
                   <div className="form-section">
                     <div className="form-section-title"><span>Value</span><span>⌃</span></div>
                     <label className="field-label">Input value<textarea rows={4} value={selectedNode.config.value ?? ""} onChange={(event) => updateConfig("value", event.target.value)} /></label>

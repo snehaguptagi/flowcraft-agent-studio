@@ -12,7 +12,7 @@ The agentic product contract and delivery sequence are defined in [PRD.md](./PRD
 
 ## Current milestone
 
-**Agent 1: Research Agent**
+**Agents 1–2: Research Agent and Document Agent**
 
 The current implementation includes:
 
@@ -28,12 +28,17 @@ The current implementation includes:
 - A versioned Python API that runs the Research Agent as a typed LangGraph graph
 - Opt-in LangSmith tracing for engineering observability
 - A memory boundary prepared for evaluated LangMem use cases later
+- Document Agent with approved text ingestion, section extraction, evidence ranking, and citations
+- TXT, Markdown, CSV, and JSON document inputs up to 100 KB in the current milestone
+- Shared permissions, limits, traces, API behavior, and safe browser fallback across both agents
 
-Document, Data Analyst, Writer, and Supervisor agents are shown in the library as planned and will be implemented one at a time.
+Data Analyst, Writer, and Supervisor agents remain planned and will be implemented one at a time.
 
 ## Important MVP boundary
 
-The Research Agent uses deterministic sandbox tools so it can demonstrate the agent interaction, safety, configuration, and trace model without sending data to external AI services. When the Python service is configured, LangGraph orchestrates these tools on the server. Otherwise the same experience falls back safely to the browser sandbox.
+The Research and Document agents use deterministic sandbox tools so they can demonstrate interaction, safety, configuration, and trace behavior without sending data to external AI services. When the Python service is configured, LangGraph orchestrates these tools on the server. Otherwise the same experience falls back safely to the browser sandbox.
+
+The Document Agent currently accepts text-based TXT, Markdown, CSV, and JSON files. PDF and DOCX extraction will be added as a controlled server-side parser increment rather than processing opaque binary files in the browser.
 
 Production model calls, web access, credentials, durable memory, approvals, and privileged tools must run through a secure server-side agent runtime.
 

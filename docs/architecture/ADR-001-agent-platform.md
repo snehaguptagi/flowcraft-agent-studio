@@ -41,6 +41,12 @@ The first Research Agent uses:
 
 This is intentionally a real orchestration service with safe fake tools. Live search and a model adapter are separate increments because they introduce credentials, external data, prompt-injection handling, usage costs, and new acceptance tests.
 
+## Agent 2 implementation
+
+The Document Agent reuses the same FastAPI, LangGraph, trace, checkpointer, limits, and frontend-fallback contracts. Its typed graph opens approved documents, normalizes text, separates named sections, ranks relevant evidence, and assembles citations.
+
+The first increment accepts run-scoped TXT, Markdown, CSV, and JSON text up to 100,000 characters per document. It does not persist uploaded content. PDF and DOCX require a controlled server-side binary parser and are intentionally deferred. Document content and citations remain part of the retrieval/provenance boundary and are not written to LangMem.
+
 ## Consequences
 
 ### Benefits

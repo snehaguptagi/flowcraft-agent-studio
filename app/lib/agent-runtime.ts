@@ -49,6 +49,17 @@ export type ResearchAgentConfig = {
   outputFormat: string;
 };
 
+export type DocumentInput = {
+  id: string;
+  name: string;
+  mimeType: "text/plain" | "text/markdown" | "text/csv" | "application/json";
+  content: string;
+};
+
+export type DocumentAgentConfig = ResearchAgentConfig & {
+  documents: DocumentInput[];
+};
+
 export type AgentRunResult = {
   status: "completed" | "failed" | "limit-reached";
   output: string;
@@ -80,6 +91,33 @@ export const RESEARCH_AGENT_TOOLS: ToolDefinition[] = [
     id: "note-collector",
     name: "Note collector",
     description: "Organize evidence and source references",
+    risk: "low",
+  },
+];
+
+export const DOCUMENT_AGENT_TOOLS: ToolDefinition[] = [
+  {
+    id: "document-reader",
+    name: "Document reader",
+    description: "Open approved text documents for the current run",
+    risk: "low",
+  },
+  {
+    id: "text-extractor",
+    name: "Text extractor",
+    description: "Normalize readable text while preserving document identity",
+    risk: "low",
+  },
+  {
+    id: "section-finder",
+    name: "Section finder",
+    description: "Split documents into named, traceable sections",
+    risk: "low",
+  },
+  {
+    id: "citation-collector",
+    name: "Citation collector",
+    description: "Select relevant evidence and attach document citations",
     risk: "low",
   },
 ];
@@ -251,6 +289,178 @@ export async function runResearchAgentSandbox(
   };
 }
 
+type SandboxCitation = {
+  documentName: string;
+  section: string;
+  quote: string;
+  label: string;
+};
+
+const DOCUMENT_STOP_WORDS = new Set([
+  "about", "after", "also", "and", "are", "can", "document", "for", "from", "have",
+  "how", "into", "should", "that", "the", "this", "what", "when", "where", "which", "with",
+]);
+
+function collectSandboxCitations(config: DocumentAgentConfig): SandboxCitation[] {
+  const tokens = new Set(
+    (config.input || config.goal)
+      .toLowerCase()
+      .match(/[a-z0-9]+/g)
+      ?.filter((token) => token.length > 2 && !DOCUMENT_STOP_WORDS.has(token)) ?? [],
+  );
+  const passages = config.documents.flatMap((document) =>
+    document.content
+      .replace(/\r\n?/g, "\n")
+      .split(/\n\s*\n/)
+      .map((block, index) => {
+        const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+        const hasHeading = lines.length > 1 && lines[0].length <= 100;
+        return {
+          documentName: document.name,
+          section: hasHeading ? lines[0].replace(/^#+\s*/, "") : `Passage ${index + 1}`,
+          quote: (hasHeading ? lines.slice(1) : lines).join(" ").slice(0, 280),
+          index,
+        };
+      })
+      .filter((passage) => passage.quote),
+  );
+  return passages
+    .map((passage) => ({
+      ...passage,
+      score: [...tokens].filter((token) => `${passage.section} ${passage.quote}`.toLowerCase().includes(token)).length,
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, 3)
+    .map((passage, index) => ({ ...passage, label: `[${index + 1}]` }));
+}
+
+export async function runDocumentAgentSandbox(
+  config: DocumentAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  const trace: AgentTraceEvent[] = [];
+  const emit = (event: AgentTraceEvent) => {
+    trace.push(event);
+    hooks.onTrace?.(event);
+  };
+
+  const missingTool = DOCUMENT_AGENT_TOOLS.find(
+    (tool) => !config.allowedTools.includes(tool.id),
+  );
+  if (missingTool || !config.documents.length) {
+    hooks.onPhase?.("failed");
+    emit(
+      traceEvent(
+        0,
+        "error",
+        missingTool ? "Required tool unavailable" : "Document required",
+        missingTool
+          ? `The Document Agent cannot continue because ${missingTool.id} is not allowed.`
+          : "Attach at least one supported text document before running.",
+      ),
+    );
+    return {
+      status: "failed",
+      output: "Document analysis stopped because its required input or permission was unavailable.",
+      trace,
+      stepsUsed: 0,
+      runtime: "browser-sandbox",
+    };
+  }
+
+  const characterCount = config.documents.reduce((total, document) => total + document.content.length, 0);
+  const citations = collectSandboxCitations(config);
+  const steps = [
+    {
+      toolId: "document-reader",
+      plan: "Open only the documents supplied to this run and verify their types.",
+      action: `Open ${config.documents.length} approved document(s).`,
+      observation: `Opened ${config.documents.length} supported text document(s).`,
+      latency: 180,
+    },
+    {
+      toolId: "text-extractor",
+      plan: "Normalize readable text while keeping each document identity intact.",
+      action: "Normalize line endings and readable text for analysis.",
+      observation: `Extracted ${characterCount} characters.`,
+      latency: 220,
+    },
+    {
+      toolId: "section-finder",
+      plan: "Split the extracted text into named sections with stable provenance.",
+      action: "Identify headings and evidence passages in each document.",
+      observation: `Identified ${Math.max(citations.length, 1)} relevant section(s).`,
+      latency: 240,
+    },
+    {
+      toolId: "citation-collector",
+      plan: "Select the sections most relevant to the question and attach citations.",
+      action: "Rank evidence passages against the incoming question.",
+      observation: `Selected ${citations.length} cited evidence passage(s).`,
+      latency: 210,
+    },
+  ];
+
+  const allowedStepCount = Math.max(1, Math.min(config.maxSteps, steps.length));
+  for (let index = 0; index < allowedStepCount; index += 1) {
+    const step = steps[index];
+    const stepNumber = index + 1;
+    const tool = DOCUMENT_AGENT_TOOLS.find((candidate) => candidate.id === step.toolId)!;
+    hooks.onPhase?.("planning");
+    emit(traceEvent(stepNumber, "plan", `Plan step ${stepNumber}`, step.plan));
+    await wait(90);
+    hooks.onPhase?.("acting");
+    emit(traceEvent(stepNumber, "action", `Use ${tool.name}`, step.action, { toolId: tool.id, risk: tool.risk }));
+    await wait(step.latency);
+    hooks.onPhase?.("observing");
+    emit(traceEvent(stepNumber, "observation", `${tool.name} result`, step.observation, {
+      toolId: tool.id,
+      risk: tool.risk,
+      latency: step.latency,
+    }));
+    await wait(80);
+  }
+
+  if (allowedStepCount < steps.length) {
+    hooks.onPhase?.("limit-reached");
+    emit(traceEvent(
+      allowedStepCount,
+      "decision",
+      "Step limit reached",
+      `The agent stopped after ${allowedStepCount} document-processing steps.`,
+    ));
+    return {
+      status: "limit-reached",
+      output: `Partial document analysis. The configured ${config.maxSteps}-step limit was reached before a cited answer could be assembled.`,
+      trace,
+      stepsUsed: allowedStepCount,
+      runtime: "browser-sandbox",
+    };
+  }
+
+  const evidence = citations.map((citation) => `• ${citation.quote} ${citation.label}`).join("\n");
+  const references = citations
+    .map((citation) => `${citation.label} ${citation.documentName} — ${citation.section}`)
+    .join("\n");
+  const answer = citations[0]?.quote ?? "No supported answer was found in the supplied text.";
+  const output = [
+    "Document answer",
+    answer,
+    "",
+    "Key evidence",
+    evidence || "• No relevant evidence was found.",
+    "",
+    "Citations",
+    references || "• None",
+    "",
+    `Confidence: ${citations.length >= 2 ? "High" : citations.length ? "Medium" : "Low"}`,
+  ].join("\n");
+  emit(traceEvent(4, "decision", "Document analysis complete", `The cited evidence satisfies: ${config.completionCondition}`));
+  emit(traceEvent(4, "output", "Final document result", output));
+  hooks.onPhase?.("completed");
+  return { status: "completed", output, trace, stepsUsed: 4, runtime: "browser-sandbox" };
+}
+
 function phaseForEvent(event: AgentTraceEvent): AgentPhase {
   if (event.kind === "action") return "acting";
   if (event.kind === "observation") return "observing";
@@ -271,24 +481,26 @@ function isAgentRunResult(value: unknown): value is AgentRunResult {
   );
 }
 
-export async function runResearchAgent(
-  config: ResearchAgentConfig,
-  hooks: AgentRuntimeHooks = {},
+async function runServerAgent(
+  endpoint: string,
+  payload: ResearchAgentConfig | DocumentAgentConfig,
+  hooks: AgentRuntimeHooks,
+  fallback: () => Promise<AgentRunResult>,
 ): Promise<AgentRunResult> {
   const apiUrl = process.env.NEXT_PUBLIC_AGENT_API_URL?.trim().replace(/\/$/, "");
-  if (!apiUrl) return runResearchAgentSandbox(config, hooks);
+  if (!apiUrl) return fallback();
 
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(),
-    Math.max(1, config.timeoutSeconds) * 1_000,
+    Math.max(1, payload.timeoutSeconds) * 1_000,
   );
 
   try {
-    const response = await fetch(`${apiUrl}/v1/agents/research/runs`, {
+    const response = await fetch(`${apiUrl}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(config),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Agent service returned ${response.status}`);
@@ -304,12 +516,36 @@ export async function runResearchAgent(
     hooks.onPhase?.(result.status);
     return result;
   } catch (error) {
-    const fallback = await runResearchAgentSandbox(config, hooks);
+    const fallbackResult = await fallback();
     return {
-      ...fallback,
+      ...fallbackResult,
       fallbackReason: error instanceof Error ? error.message : "Agent service unavailable",
     };
   } finally {
     window.clearTimeout(timeout);
   }
+}
+
+export async function runResearchAgent(
+  config: ResearchAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  return runServerAgent(
+    "/v1/agents/research/runs",
+    config,
+    hooks,
+    () => runResearchAgentSandbox(config, hooks),
+  );
+}
+
+export async function runDocumentAgent(
+  config: DocumentAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  return runServerAgent(
+    "/v1/agents/document/runs",
+    config,
+    hooks,
+    () => runDocumentAgentSandbox(config, hooks),
+  );
 }

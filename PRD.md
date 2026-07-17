@@ -1,6 +1,6 @@
 # Flowcraft Agent Studio — Product Requirements Document
 
-**Version:** 2.1
+**Version:** 2.2
 
 **Status:** Approved for incremental implementation
 
@@ -198,6 +198,12 @@ Build the reusable Agent node, runtime state machine, step trace, tool permissio
 
 **Tools:** document reader, text extractor, section finder, citation collector.
 
+**Initial inputs:** one to five user-approved TXT, Markdown, CSV, or JSON text documents, plus an optional question from an upstream node. PDF and DOCX binary extraction are a later server-parser increment.
+
+**Completion condition:** enough cited evidence is collected to answer the question, or the step limit is reached.
+
+**Output:** answer, key evidence, document-and-section citations, confidence, and full trace.
+
 ### Agent 3 — Data Analyst Agent
 
 **Purpose:** Inspect tabular data, calculate metrics, identify anomalies, and produce an explanation or structured report.
@@ -226,6 +232,7 @@ The first agentic MVP includes:
 - A new Agent category in the node library.
 - Shared Agent node configuration.
 - Research Agent as the first specialist agent.
+- Document Agent as the second specialist agent.
 - Tool permission selection.
 - Working-memory configuration.
 - Step, timeout, and approval limits.
@@ -234,6 +241,7 @@ The first agentic MVP includes:
 - Hybrid workflows where deterministic nodes feed an Agent node and receive its result.
 - Local workflow persistence and JSON portability.
 - Deterministic sandbox execution until the secure server runtime is introduced.
+- Server-backed LangGraph execution for Research and Document agents when the local runtime is configured.
 
 ## 11. Non-goals for the first agentic MVP
 
@@ -242,6 +250,7 @@ The first agentic MVP includes:
 - User-provided arbitrary code execution.
 - Production credential storage.
 - Persistent semantic memory across users or organizations.
+- Binary PDF or DOCX extraction in the browser; those formats require a controlled server parser.
 - Multi-user collaboration.
 - Fully autonomous supervisor behavior before specialist agents are validated.
 
@@ -424,9 +433,11 @@ The runtime layer will add:
 
 The browser must never receive provider secrets or execute privileged tools directly.
 
-### Agent 1 implementation boundary
+### Specialist implementation boundary
 
 The first server-backed Research Agent is deliberately deterministic: it runs approved sandbox research tools through a real LangGraph state graph without requiring a model key or unrestricted web access. This validates the graph contract, typed API, permissions, limits, trace mapping, and frontend fallback before live search or model providers are introduced.
+
+The second server-backed Document Agent follows the same pattern. It accepts approved text documents, preserves document identity, extracts sections, ranks evidence, and returns explicit citations without a model key. Document knowledge remains run-scoped and separate from LangMem.
 
 The browser sandbox remains a safe fallback whenever the local agent service is not configured or reachable. A configured server run must identify itself as `langgraph`; a fallback run must identify itself as `browser-sandbox`.
 
@@ -469,15 +480,31 @@ Agent 1 is complete when:
 - The frontend uses the server runtime when configured and safely falls back to the browser sandbox when unavailable.
 - LangSmith tracing can be enabled with server-side environment variables without exposing credentials to the browser.
 
-## 18. Success measures
+## 18. Document Agent acceptance criteria
 
-- At least 80% of test users can add and run the Research Agent without assistance.
+Agent 2 is complete when:
+
+- A Document Agent can be added from the Agent library.
+- A user can load or paste a supported text document into a Text Document input node.
+- The Document Agent requires a connected document and all four approved tools.
+- Its goal, instructions, model, tools, memory, limits, and approval policy are editable.
+- A valid run emits plan, action, observation, decision, and output trace events.
+- The result contains evidence citations with document names and section labels.
+- The step limit and unsupported-document failure paths are tested.
+- A versioned FastAPI endpoint runs the Document Agent through LangGraph.
+- The frontend uses the server runtime when configured and safely falls back to the browser sandbox.
+- Workflow export and import preserve document text and Document Agent configuration without secrets.
+- Backend tests, frontend build, lint, and smoke tests pass.
+
+## 19. Success measures
+
+- At least 80% of test users can add and run each ready specialist agent without assistance.
 - Users can correctly explain what the agent did after reading the trace.
 - No sandbox run exceeds its configured maximum steps.
 - Every tool call is attributable to an agent, step, and permission grant.
 - Validation errors are resolved without external documentation in at least 90% of tests.
 
-## 19. Delivery sequence
+## 20. Delivery sequence
 
 1. Commit this PRD as the product contract.
 2. Connect the repository to a private GitHub remote.
@@ -486,4 +513,6 @@ Agent 1 is complete when:
 5. Add the agent trace experience.
 6. Validate, commit, push, and deploy Agent 1.
 7. Review Agent 1 against its acceptance criteria.
-8. Begin the Document Agent only after Agent 1 is accepted.
+8. Implement and validate the Document Agent on the shared runtime.
+9. Commit, push, and deploy Agent 2.
+10. Begin the Data Analyst Agent only after Agent 2 is accepted.
