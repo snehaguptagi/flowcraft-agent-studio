@@ -1,6 +1,6 @@
 # Flowcraft Agent Studio — Product Requirements Document
 
-**Version:** 2.0
+**Version:** 2.1
 
 **Status:** Approved for incremental implementation
 
@@ -401,7 +401,17 @@ Detect and explain:
 
 ### Production runtime layer
 
-The production implementation will add:
+The production implementation uses a Python service behind the visual editor:
+
+- **FastAPI** exposes versioned agent, run, health, and later approval endpoints.
+- **LangGraph** is the authoritative agent orchestration runtime. Each specialist agent is a typed graph with explicit nodes, transitions, limits, and resumable run state.
+- **LangSmith** is opt-in from the first server-backed run for engineering traces, evaluation datasets, and regression testing. Flowcraft still owns the user-visible trace and immutable product audit record.
+- **LangGraph checkpointers** hold short-term thread and run state. The local service starts with an in-memory checkpointer; production moves to Postgres.
+- **A Flowcraft memory interface** separates working, thread, and long-term memory. **LangMem is deferred until a specialist agent has a validated cross-run memory need**, then used selectively for structured memory extraction and consolidation.
+- Document retrieval and citations use a dedicated retrieval/indexing layer rather than LangMem. LangMem is not the document knowledge base.
+- Server-sent events will stream run events to the canvas after the synchronous Agent 1 API contract is stable.
+
+The runtime layer will add:
 
 - Authenticated server-side agent runs.
 - Durable workflow, run, trace, and approval records.
@@ -413,6 +423,21 @@ The production implementation will add:
 - Usage, cost, latency, and error observability.
 
 The browser must never receive provider secrets or execute privileged tools directly.
+
+### Agent 1 implementation boundary
+
+The first server-backed Research Agent is deliberately deterministic: it runs approved sandbox research tools through a real LangGraph state graph without requiring a model key or unrestricted web access. This validates the graph contract, typed API, permissions, limits, trace mapping, and frontend fallback before live search or model providers are introduced.
+
+The browser sandbox remains a safe fallback whenever the local agent service is not configured or reachable. A configured server run must identify itself as `langgraph`; a fallback run must identify itself as `browser-sandbox`.
+
+### Memory layers
+
+1. **Run working memory:** transient facts used inside one graph execution.
+2. **Thread memory:** resumable state for a workflow conversation, stored by a LangGraph checkpointer.
+3. **Long-term semantic memory:** user- or organization-scoped structured facts, added only with explicit retention, deletion, and evaluation rules.
+4. **Document knowledge:** indexed source content with provenance and citations; kept separate from personal or procedural memory.
+
+The detailed decision and alternatives are recorded in `docs/architecture/ADR-001-agent-platform.md`.
 
 ## 16. Security and safety requirements
 
@@ -440,6 +465,9 @@ Agent 1 is complete when:
 - The Research Agent output can feed a downstream output node.
 - Workflow export/import preserves the full agent configuration.
 - The application passes build, lint, and smoke tests.
+- A versioned FastAPI endpoint runs the Research Agent through LangGraph.
+- The frontend uses the server runtime when configured and safely falls back to the browser sandbox when unavailable.
+- LangSmith tracing can be enabled with server-side environment variables without exposing credentials to the browser.
 
 ## 18. Success measures
 

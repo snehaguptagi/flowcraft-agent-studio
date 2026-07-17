@@ -25,12 +25,15 @@ The current implementation includes:
 - Hybrid execution with deterministic upstream and downstream nodes
 - Validation of agent goals, tools, models, and limits
 - Local autosave and versioned JSON import/export
+- A versioned Python API that runs the Research Agent as a typed LangGraph graph
+- Opt-in LangSmith tracing for engineering observability
+- A memory boundary prepared for evaluated LangMem use cases later
 
 Document, Data Analyst, Writer, and Supervisor agents are shown in the library as planned and will be implemented one at a time.
 
 ## Important MVP boundary
 
-The Research Agent currently runs through deterministic sandbox tools. It demonstrates the agent interaction, safety, configuration, and trace model without sending data to external AI services.
+The Research Agent uses deterministic sandbox tools so it can demonstrate the agent interaction, safety, configuration, and trace model without sending data to external AI services. When the Python service is configured, LangGraph orchestrates these tools on the server. Otherwise the same experience falls back safely to the browser sandbox.
 
 Production model calls, web access, credentials, durable memory, approvals, and privileged tools must run through a secure server-side agent runtime.
 
@@ -52,7 +55,20 @@ npm run dev
 
 Open the local URL printed by the development server, normally [http://localhost:3000](http://localhost:3000).
 
-No environment variables are required for the sandbox MVP.
+No environment variables are required for the browser sandbox.
+
+### Run the LangGraph agent service
+
+In a second terminal:
+
+```powershell
+cd services/agent-runtime
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+.\.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
+```
+
+Copy `.env.example` to `.env.local`, then restart `npm run dev`. The frontend will use `NEXT_PUBLIC_AGENT_API_URL=http://localhost:8000`. LangSmith is optional and configured only in the server environment; LangMem is intentionally deferred until long-term memory is needed and governed.
 
 ## Verification
 
@@ -60,6 +76,9 @@ No environment variables are required for the sandbox MVP.
 npm run build
 npm run lint
 npm test
+cd services/agent-runtime
+.\.venv\Scripts\python -m ruff check .
+.\.venv\Scripts\python -m pytest
 ```
 
 ## Project structure
@@ -67,7 +86,7 @@ npm test
 ```text
 app/
   page.tsx                  Visual builder, validation and workflow orchestration
-  lib/agent-runtime.ts      Shared agent contract and Research Agent sandbox runtime
+  lib/agent-runtime.ts      API client and safe browser fallback
   globals.css               Product design system and responsive layout
   layout.tsx                Document shell and social metadata
 public/
@@ -77,6 +96,8 @@ tests/
 .openai/
   hosting.json              Sites deployment configuration
 PRD.md                      Agentic product source of truth
+docs/architecture/          Accepted technical decisions
+services/agent-runtime/     FastAPI and LangGraph specialist-agent service
 ```
 
 ## Technology
@@ -85,6 +106,8 @@ PRD.md                      Agentic product source of truth
 - vinext and Vite
 - Custom visual graph canvas
 - Browser local storage for device-local drafts
+- Python, FastAPI, and LangGraph for server-side agent execution
+- Optional LangSmith engineering traces; LangMem-ready memory boundary
 - Cloudflare-compatible deployment output
 - GitHub repository: [snehaguptagi/flowcraft-agent-studio](https://github.com/snehaguptagi/flowcraft-agent-studio)
 

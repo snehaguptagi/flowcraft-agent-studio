@@ -14,7 +14,7 @@ import {
   AgentPhase,
   AgentTraceEvent,
   RESEARCH_AGENT_TOOLS,
-  runResearchAgentSandbox,
+  runResearchAgent,
 } from "./lib/agent-runtime";
 
 type NodeCategory = "Input" | "Agent" | "AI" | "Logic" | "Output";
@@ -323,23 +323,26 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
-      const storedTheme = window.localStorage.getItem(`${STORAGE_KEY}-theme`);
-      if (stored) {
-        const parsed = JSON.parse(stored) as Snapshot & { name?: string };
-        if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
-          setNodes(parsed.nodes);
-          setEdges(parsed.edges);
-          if (parsed.name) setWorkflowName(parsed.name);
-          if (parsed.nodes[0]) setSelectedId(parsed.nodes[0].id);
+    const hydrationTimer = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        const storedTheme = window.localStorage.getItem(`${STORAGE_KEY}-theme`);
+        if (stored) {
+          const parsed = JSON.parse(stored) as Snapshot & { name?: string };
+          if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+            setNodes(parsed.nodes);
+            setEdges(parsed.edges);
+            if (parsed.name) setWorkflowName(parsed.name);
+            if (parsed.nodes[0]) setSelectedId(parsed.nodes[0].id);
+          }
         }
+        setDarkMode(storedTheme === "dark");
+      } catch {
+        // A malformed local draft should never block the starter workflow.
       }
-      setDarkMode(storedTheme === "dark");
-    } catch {
-      // A malformed local draft should never block the starter workflow.
-    }
-    hydratedRef.current = true;
+      hydratedRef.current = true;
+    }, 0);
+    return () => window.clearTimeout(hydrationTimer);
   }, []);
 
   useEffect(() => {
@@ -391,24 +394,6 @@ export default function Home() {
       window.removeEventListener("pointerup", handleUp);
     };
   }, [dragging, panning, zoom]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select")) return;
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
-        event.preventDefault();
-        showToast("Workflow saved");
-      }
-      if (event.key === "Escape") setConnectFrom(null);
-      if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
-        event.preventDefault();
-        removeNode(selectedId);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
 
   const commit = useCallback(
     (nextNodes: WorkflowNode[], nextEdges: WorkflowEdge[]) => {
@@ -477,6 +462,24 @@ export default function Home() {
     showToast("Node removed");
   }, [commit, edges, isRunning, nodes, showToast]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select")) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        showToast("Workflow saved");
+      }
+      if (event.key === "Escape") setConnectFrom(null);
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
+        event.preventDefault();
+        removeNode(selectedId);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [removeNode, selectedId, showToast]);
+
   const updateNode = useCallback((id: string, patch: Partial<WorkflowNode>) => {
     setNodes((current) => current.map((node) => (node.id === id ? { ...node, ...patch } : node)));
   }, []);
@@ -490,7 +493,7 @@ export default function Home() {
     );
   }, [selectedNode]);
 
-  const connectTo = (targetId: string) => {
+  const connectTo = useCallback((targetId: string) => {
     if (!connectFrom || connectFrom === targetId) {
       setConnectFrom(null);
       return;
@@ -501,7 +504,7 @@ export default function Home() {
       showToast("Nodes connected");
     }
     setConnectFrom(null);
-  };
+  }, [commit, connectFrom, edges, nodes, showToast]);
 
   const undo = () => {
     const previous = undoStack.at(-1);
@@ -634,7 +637,7 @@ export default function Home() {
     setIsRunning(true);
     setRunDuration(null);
     const started = performance.now();
-    setLogs([{ id: `run-${Date.now()}`, time: nowLabel(), level: "info", message: "Execution started in sandbox mode." }]);
+    setLogs([{ id: `run-${Date.now()}`, time: nowLabel(), level: "info", message: "Execution started." }]);
     setNodes((current) => current.map((node) => ({
       ...node,
       status: "pending",
@@ -676,7 +679,7 @@ export default function Home() {
 
       if (node.type === "research-agent") {
         setConsoleTab("trace");
-        const result = await runResearchAgentSandbox(
+        const result = await runResearchAgent(
           {
             goal: node.config.goal ?? "",
             role: node.config.role ?? "",
@@ -712,6 +715,15 @@ export default function Home() {
         );
         output = result.output;
         finalStatus = result.status;
+        addLog({
+          level: result.fallbackReason ? "info" : "success",
+          node: node.name,
+          message: result.fallbackReason
+            ? "Agent service unavailable; completed with the safe browser sandbox"
+            : result.runtime === "langgraph"
+              ? "Executed by the LangGraph agent service"
+              : "Executed by the browser sandbox",
+        });
       } else {
         await sleep(380 + (node.type.length % 4) * 90);
         output = computeOutput(node, inputValues);

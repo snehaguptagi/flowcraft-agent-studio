@@ -54,6 +54,8 @@ export type AgentRunResult = {
   output: string;
   trace: AgentTraceEvent[];
   stepsUsed: number;
+  runtime: "langgraph" | "browser-sandbox";
+  fallbackReason?: string;
 };
 
 export type AgentRuntimeHooks = {
@@ -129,6 +131,7 @@ export async function runResearchAgentSandbox(
       output: "Research stopped because a required tool was not permitted.",
       trace,
       stepsUsed: 0,
+      runtime: "browser-sandbox",
     };
   }
 
@@ -205,6 +208,7 @@ export async function runResearchAgentSandbox(
       output: `Partial research for “${subject}”. The configured ${config.maxSteps}-step limit was reached before the evidence could be synthesized.`,
       trace,
       stepsUsed: allowedStepCount,
+      runtime: "browser-sandbox",
     };
   }
 
@@ -243,5 +247,69 @@ export async function runResearchAgentSandbox(
     output,
     trace,
     stepsUsed: steps.length,
+    runtime: "browser-sandbox",
   };
+}
+
+function phaseForEvent(event: AgentTraceEvent): AgentPhase {
+  if (event.kind === "action") return "acting";
+  if (event.kind === "observation") return "observing";
+  if (event.kind === "output") return "completed";
+  if (event.kind === "error") return "failed";
+  return "planning";
+}
+
+function isAgentRunResult(value: unknown): value is AgentRunResult {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AgentRunResult>;
+  return (
+    ["completed", "failed", "limit-reached"].includes(candidate.status ?? "") &&
+    candidate.runtime === "langgraph" &&
+    typeof candidate.output === "string" &&
+    typeof candidate.stepsUsed === "number" &&
+    Array.isArray(candidate.trace)
+  );
+}
+
+export async function runResearchAgent(
+  config: ResearchAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  const apiUrl = process.env.NEXT_PUBLIC_AGENT_API_URL?.trim().replace(/\/$/, "");
+  if (!apiUrl) return runResearchAgentSandbox(config, hooks);
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    Math.max(1, config.timeoutSeconds) * 1_000,
+  );
+
+  try {
+    const response = await fetch(`${apiUrl}/v1/agents/research/runs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Agent service returned ${response.status}`);
+
+    const result: unknown = await response.json();
+    if (!isAgentRunResult(result)) throw new Error("Agent service returned an invalid response");
+
+    for (const event of result.trace) {
+      hooks.onPhase?.(phaseForEvent(event));
+      hooks.onTrace?.(event);
+      await wait(55);
+    }
+    hooks.onPhase?.(result.status);
+    return result;
+  } catch (error) {
+    const fallback = await runResearchAgentSandbox(config, hooks);
+    return {
+      ...fallback,
+      fallbackReason: error instanceof Error ? error.message : "Agent service unavailable",
+    };
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
