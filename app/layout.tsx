@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 const baseMetadata: Metadata = {
-  title: "Flowcraft — AI Workflow Studio",
-  description: "Build, validate, run, and reuse AI workflows on a visual canvas.",
+  title: "Flowcraft — Agent Workflow Studio",
+  description: "Build, run, inspect, and control AI agents and deterministic workflows on a visual canvas.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
@@ -34,14 +34,14 @@ export async function generateMetadata(): Promise<Metadata> {
     metadataBase: new URL(origin),
     openGraph: {
       type: "website",
-      title: "Flowcraft — AI Workflow Studio",
-      description: "Build, validate, run, and reuse AI workflows on a visual canvas.",
-      images: [{ url: socialImage, width: 1200, height: 630, alt: "Flowcraft visual AI workflow studio" }],
+      title: "Flowcraft — Agent Workflow Studio",
+      description: "Build, run, inspect, and control AI agents and deterministic workflows on a visual canvas.",
+      images: [{ url: socialImage, width: 1200, height: 630, alt: "Flowcraft visual agent workflow studio" }],
     },
     twitter: {
       card: "summary_large_image",
-      title: "Flowcraft — AI Workflow Studio",
-      description: "Build, validate, run, and reuse AI workflows on a visual canvas.",
+      title: "Flowcraft — Agent Workflow Studio",
+      description: "Build, run, inspect, and control AI agents and deterministic workflows on a visual canvas.",
       images: [socialImage],
     },
   };

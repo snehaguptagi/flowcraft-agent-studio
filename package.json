@@ -1,7 +1,11 @@
 {
-  "name": "flowcraft-ai-workflow-studio",
+  "name": "flowcraft-agent-studio",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/snehaguptagi/flowcraft-agent-studio.git"
+  },
   "engines": {
     "node": ">=22.13.0"
   },

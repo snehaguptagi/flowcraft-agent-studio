@@ -10,9 +10,24 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  AgentPhase,
+  AgentTraceEvent,
+  RESEARCH_AGENT_TOOLS,
+  runResearchAgentSandbox,
+} from "./lib/agent-runtime";
 
-type NodeCategory = "Input" | "AI" | "Logic" | "Output";
-type NodeStatus = "idle" | "pending" | "running" | "completed" | "failed";
+type NodeCategory = "Input" | "Agent" | "AI" | "Logic" | "Output";
+type NodeStatus =
+  | "idle"
+  | "pending"
+  | "running"
+  | "planning"
+  | "acting"
+  | "observing"
+  | "completed"
+  | "failed"
+  | "limit-reached";
 
 type NodeConfig = {
   value?: string;
@@ -24,6 +39,16 @@ type NodeConfig = {
   variables?: string;
   format?: string;
   schema?: string;
+  role?: string;
+  goal?: string;
+  instructions?: string;
+  allowedTools?: string[];
+  memory?: string;
+  maxSteps?: number;
+  timeoutSeconds?: number;
+  approvalPolicy?: "never" | "sensitive" | "always";
+  completionCondition?: string;
+  outputFormat?: string;
 };
 
 type WorkflowNode = {
@@ -38,6 +63,7 @@ type WorkflowNode = {
   config: NodeConfig;
   output?: string;
   latency?: number;
+  agentTrace?: AgentTraceEvent[];
 };
 
 type WorkflowEdge = {
@@ -66,9 +92,10 @@ type CatalogItem = {
   description: string;
   mark: string;
   config: NodeConfig;
+  availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-workflow-v1";
+const STORAGE_KEY = "flowcraft-agent-workflow-v2";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 
@@ -76,6 +103,32 @@ const catalog: CatalogItem[] = [
   { type: "text-input", name: "Text input", category: "Input", description: "Collect a text value", mark: "T", config: { value: "How can I reset a locked workspace?" } },
   { type: "file-upload", name: "File upload", category: "Input", description: "Accept PDF, DOCX or TXT", mark: "F", config: { value: "knowledge-base.pdf" } },
   { type: "url-input", name: "URL input", category: "Input", description: "Fetch content from a URL", mark: "↗", config: { value: "https://docs.example.com" } },
+  {
+    type: "research-agent",
+    name: "Research Agent",
+    category: "Agent",
+    description: "Plan, gather evidence and synthesize findings",
+    mark: "RA",
+    availability: "ready",
+    config: {
+      role: "Evidence-first research specialist",
+      goal: "Research the incoming question and return a concise, sourced answer.",
+      instructions: "Use only approved tools. Collect enough evidence before answering. Keep source labels and state confidence.",
+      provider: "OpenAI",
+      model: "GPT-4.1 mini",
+      allowedTools: ["web-search", "page-reader", "note-collector"],
+      memory: "Working memory for the current run",
+      maxSteps: 4,
+      timeoutSeconds: 90,
+      approvalPolicy: "sensitive",
+      completionCondition: "Three relevant sources support a clear answer",
+      outputFormat: "Answer, findings, sources, confidence",
+    },
+  },
+  { type: "document-agent", name: "Document Agent", category: "Agent", description: "Read, compare and cite documents", mark: "DA", availability: "planned", config: {} },
+  { type: "data-agent", name: "Data Analyst", category: "Agent", description: "Analyze tables, metrics and anomalies", mark: "DX", availability: "planned", config: {} },
+  { type: "writer-agent", name: "Writer Agent", category: "Agent", description: "Draft evidence-grounded content", mark: "WA", availability: "planned", config: {} },
+  { type: "supervisor-agent", name: "Supervisor", category: "Agent", description: "Delegate work to specialist agents", mark: "SA", availability: "planned", config: {} },
   { type: "prompt", name: "Prompt", category: "AI", description: "Build a reusable prompt", mark: "P", config: { prompt: "Answer the customer clearly using only the provided context.", variables: "question, context" } },
   { type: "llm", name: "LLM", category: "AI", description: "Generate with a language model", mark: "AI", config: { provider: "OpenAI", model: "GPT-4.1 mini", temperature: 0.3, maxTokens: 900 } },
   { type: "embedding", name: "Embedding", category: "AI", description: "Create vector embeddings", mark: "E", config: { provider: "OpenAI", model: "text-embedding-3-small" } },
@@ -107,15 +160,28 @@ const initialNodes: WorkflowNode[] = [
     config: { value: "How can I reset a locked workspace?" },
   },
   {
-    id: "rag-1",
-    type: "rag",
-    category: "AI",
-    name: "Find help articles",
-    description: "Retrieve relevant context",
+    id: "research-1",
+    type: "research-agent",
+    category: "Agent",
+    name: "Research support answer",
+    description: "Plan, gather evidence and synthesize findings",
     x: 342,
     y: 88,
     status: "idle",
-    config: { model: "Hybrid search", maxTokens: 1200 },
+    config: {
+      role: "Evidence-first support researcher",
+      goal: "Research the customer question and return a sourced recovery answer.",
+      instructions: "Use approved sandbox tools, compare the strongest sources, preserve source labels, and stop when the answer is supported.",
+      provider: "OpenAI",
+      model: "GPT-4.1 mini",
+      allowedTools: ["web-search", "page-reader", "note-collector"],
+      memory: "Remember evidence and source labels during this run",
+      maxSteps: 4,
+      timeoutSeconds: 90,
+      approvalPolicy: "sensitive",
+      completionCondition: "Three relevant sources support a clear answer",
+      outputFormat: "Answer, findings, sources, confidence",
+    },
   },
   {
     id: "prompt-1",
@@ -156,18 +222,25 @@ const initialNodes: WorkflowNode[] = [
 ];
 
 const initialEdges: WorkflowEdge[] = [
-  { id: "e-input-rag", from: "input-1", to: "rag-1" },
+  { id: "e-input-research", from: "input-1", to: "research-1" },
   { id: "e-input-prompt", from: "input-1", to: "prompt-1" },
-  { id: "e-rag-llm", from: "rag-1", to: "llm-1" },
+  { id: "e-research-llm", from: "research-1", to: "llm-1" },
   { id: "e-prompt-llm", from: "prompt-1", to: "llm-1" },
   { id: "e-llm-output", from: "llm-1", to: "output-1" },
 ];
 
-const categoryOrder: NodeCategory[] = ["Input", "AI", "Logic", "Output"];
+const categoryOrder: NodeCategory[] = ["Input", "Agent", "AI", "Logic", "Output"];
 
 function cloneSnapshot(nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot {
   return {
-    nodes: nodes.map((node) => ({ ...node, config: { ...node.config } })),
+    nodes: nodes.map((node) => ({
+      ...node,
+      config: {
+        ...node.config,
+        allowedTools: node.config.allowedTools ? [...node.config.allowedTools] : undefined,
+      },
+      agentTrace: node.agentTrace ? node.agentTrace.map((event) => ({ ...event })) : undefined,
+    })),
     edges: edges.map((edge) => ({ ...edge })),
   };
 }
@@ -188,24 +261,32 @@ function sleep(ms: number) {
 function statusLabel(status: NodeStatus) {
   if (status === "completed") return "Complete";
   if (status === "running") return "Running";
+  if (status === "planning") return "Planning";
+  if (status === "acting") return "Using tool";
+  if (status === "observing") return "Observing";
+  if (status === "limit-reached") return "Limit reached";
   if (status === "failed") return "Failed";
   if (status === "pending") return "Queued";
   return "Ready";
 }
 
+function phaseToNodeStatus(phase: AgentPhase): NodeStatus {
+  return phase;
+}
+
 export default function Home() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges);
-  const [selectedId, setSelectedId] = useState<string>("llm-1");
-  const [workflowName, setWorkflowName] = useState("Support desk copilot");
+  const [selectedId, setSelectedId] = useState<string>("research-1");
+  const [workflowName, setWorkflowName] = useState("Agentic support copilot");
   const [search, setSearch] = useState("");
   const [zoom, setZoom] = useState(0.84);
   const [pan, setPan] = useState({ x: 28, y: 30 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Workflow is ready to run in sandbox mode." },
+    { id: "ready", time: "Ready", level: "info", message: "Hybrid workflow and Research Agent are ready in sandbox mode." },
   ]);
-  const [consoleTab, setConsoleTab] = useState<"logs" | "outputs" | "errors">("logs");
+  const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(true);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
@@ -361,6 +442,10 @@ export default function Home() {
 
   const createNode = useCallback((type: string, x?: number, y?: number) => {
     const item = catalog.find((candidate) => candidate.type === type) ?? catalog[0];
+    if (item.availability === "planned") {
+      showToast(`${item.name} is planned after the Research Agent`);
+      return;
+    }
     const id = `${item.type}-${Date.now()}`;
     const offset = nodes.length * 18;
     const next: WorkflowNode = {
@@ -372,7 +457,10 @@ export default function Home() {
       x: x ?? 90 + (offset % 360),
       y: y ?? 90 + (offset % 280),
       status: "idle",
-      config: { ...item.config },
+      config: {
+        ...item.config,
+        allowedTools: item.config.allowedTools ? [...item.config.allowedTools] : undefined,
+      },
     };
     commit([...nodes, next], edges);
     setSelectedId(id);
@@ -393,7 +481,7 @@ export default function Home() {
     setNodes((current) => current.map((node) => (node.id === id ? { ...node, ...patch } : node)));
   }, []);
 
-  const updateConfig = useCallback((key: keyof NodeConfig, value: string | number) => {
+  const updateConfig = useCallback((key: keyof NodeConfig, value: string | number | string[]) => {
     if (!selectedNode) return;
     setNodes((current) =>
       current.map((node) =>
@@ -453,6 +541,24 @@ export default function Home() {
       if (node.type === "text-input" && !node.config.value?.trim()) issues.push(`${node.name} is missing text.`);
       if (node.type === "prompt" && !node.config.prompt?.trim()) issues.push(`${node.name} is missing a prompt.`);
       if (node.type === "llm" && !node.config.model?.trim()) issues.push(`${node.name} is missing a model.`);
+      if (node.category === "Agent") {
+        if (!node.config.role?.trim()) issues.push(`${node.name} is missing an agent role.`);
+        if (!node.config.goal?.trim()) issues.push(`${node.name} is missing a goal.`);
+        if (!node.config.instructions?.trim()) issues.push(`${node.name} is missing agent instructions.`);
+        if (!node.config.model?.trim()) issues.push(`${node.name} is missing a model.`);
+        if (!node.config.allowedTools?.length) issues.push(`${node.name} needs at least one allowed tool.`);
+        if (!node.config.maxSteps || node.config.maxSteps < 1) issues.push(`${node.name} needs a valid step limit.`);
+        if (!node.config.timeoutSeconds || node.config.timeoutSeconds < 1) issues.push(`${node.name} needs a valid timeout.`);
+        const knownToolIds = new Set(RESEARCH_AGENT_TOOLS.map((tool) => tool.id));
+        node.config.allowedTools?.forEach((toolId) => {
+          if (!knownToolIds.has(toolId)) issues.push(`${node.name} references unavailable tool “${toolId}”.`);
+        });
+        if (node.type === "research-agent") {
+          RESEARCH_AGENT_TOOLS.forEach((tool) => {
+            if (!node.config.allowedTools?.includes(tool.id)) issues.push(`${node.name} requires ${tool.name}.`);
+          });
+        }
+      }
     });
 
     const graph = new Map<string, string[]>();
@@ -529,7 +635,13 @@ export default function Home() {
     setRunDuration(null);
     const started = performance.now();
     setLogs([{ id: `run-${Date.now()}`, time: nowLabel(), level: "info", message: "Execution started in sandbox mode." }]);
-    setNodes((current) => current.map((node) => ({ ...node, status: "pending", output: undefined, latency: undefined })));
+    setNodes((current) => current.map((node) => ({
+      ...node,
+      status: "pending",
+      output: undefined,
+      latency: undefined,
+      agentTrace: node.category === "Agent" ? [] : node.agentTrace,
+    })));
 
     const indegree = new Map(nodes.map((node) => [node.id, 0]));
     const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
@@ -553,20 +665,70 @@ export default function Home() {
     for (const id of order) {
       const node = nodes.find((candidate) => candidate.id === id)!;
       setSelectedId(id);
-      setNodes((current) => current.map((candidate) => (candidate.id === id ? { ...candidate, status: "running" } : candidate)));
+      setNodes((current) => current.map((candidate) => (
+        candidate.id === id ? { ...candidate, status: node.category === "Agent" ? "planning" : "running" } : candidate
+      )));
       addLog({ level: "info", node: node.name, message: "Node started" });
       const nodeStarted = performance.now();
-      await sleep(380 + (node.type.length % 4) * 90);
       const inputValues = edges.filter((edge) => edge.to === id).map((edge) => outputs.get(edge.from) ?? "");
-      const output = computeOutput(node, inputValues);
+      let output: string;
+      let finalStatus: NodeStatus = "completed";
+
+      if (node.type === "research-agent") {
+        setConsoleTab("trace");
+        const result = await runResearchAgentSandbox(
+          {
+            goal: node.config.goal ?? "",
+            role: node.config.role ?? "",
+            instructions: node.config.instructions ?? "",
+            input: inputValues.filter(Boolean).join("\n\n"),
+            allowedTools: node.config.allowedTools ?? [],
+            memory: node.config.memory ?? "",
+            maxSteps: node.config.maxSteps ?? 1,
+            timeoutSeconds: node.config.timeoutSeconds ?? 60,
+            approvalPolicy: node.config.approvalPolicy ?? "sensitive",
+            completionCondition: node.config.completionCondition ?? "Return a supported answer",
+            outputFormat: node.config.outputFormat ?? "Answer with sources",
+          },
+          {
+            onPhase: (phase) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id ? { ...candidate, status: phaseToNodeStatus(phase) } : candidate
+              )));
+            },
+            onTrace: (event) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id
+                  ? { ...candidate, agentTrace: [...(candidate.agentTrace ?? []), event] }
+                  : candidate
+              )));
+              addLog({
+                level: event.kind === "error" ? "error" : event.kind === "output" ? "success" : "info",
+                node: node.name,
+                message: `${event.title} · ${event.summary.slice(0, 100)}`,
+              });
+            },
+          },
+        );
+        output = result.output;
+        finalStatus = result.status;
+      } else {
+        await sleep(380 + (node.type.length % 4) * 90);
+        output = computeOutput(node, inputValues);
+      }
+
       outputs.set(id, output);
       const latency = Math.round(performance.now() - nodeStarted);
       setNodes((current) =>
         current.map((candidate) =>
-          candidate.id === id ? { ...candidate, status: "completed", output, latency } : candidate,
+          candidate.id === id ? { ...candidate, status: finalStatus, output, latency } : candidate,
         ),
       );
-      addLog({ level: "success", node: node.name, message: `Completed in ${latency} ms` });
+      addLog({
+        level: finalStatus === "failed" ? "error" : "success",
+        node: node.name,
+        message: `${statusLabel(finalStatus)} in ${latency} ms`,
+      });
     }
 
     const duration = Math.round(performance.now() - started);
@@ -577,7 +739,7 @@ export default function Home() {
   };
 
   const exportWorkflow = () => {
-    const payload = JSON.stringify({ version: 1, name: workflowName, nodes, edges }, null, 2);
+    const payload = JSON.stringify({ version: 2, name: workflowName, nodes, edges }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -606,9 +768,9 @@ export default function Home() {
 
   const resetTemplate = () => {
     commit(cloneSnapshot(initialNodes, initialEdges).nodes, cloneSnapshot(initialNodes, initialEdges).edges);
-    setWorkflowName("Support desk copilot");
-    setSelectedId("llm-1");
-    setLogs([{ id: "ready-reset", time: "Ready", level: "info", message: "Support copilot template loaded." }]);
+    setWorkflowName("Agentic support copilot");
+    setSelectedId("research-1");
+    setLogs([{ id: "ready-reset", time: "Ready", level: "info", message: "Research Agent hybrid template loaded." }]);
     setValidationIssues([]);
     showToast("Template loaded");
   };
@@ -648,6 +810,9 @@ export default function Home() {
 
   const outputNodes = nodes.filter((node) => node.output);
   const errorLogs = logs.filter((log) => log.level === "error");
+  const agentTraceEvents = nodes.flatMap((node) =>
+    (node.agentTrace ?? []).map((event) => ({ event, nodeName: node.name })),
+  );
 
   return (
     <main className={`app-shell ${darkMode ? "theme-dark" : ""}`}>
@@ -656,7 +821,7 @@ export default function Home() {
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
           <div>
             <div className="brand-name">Flowcraft</div>
-            <div className="brand-context">AI workflow studio</div>
+            <div className="brand-context">Agent workflow studio</div>
           </div>
         </div>
 
@@ -680,7 +845,7 @@ export default function Home() {
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
             <span className={isRunning ? "run-spinner" : "play-mark"}>{isRunning ? "" : "▶"}</span>
-            {isRunning ? "Running" : "Run workflow"}
+            {isRunning ? "Running agents" : "Run workflow"}
           </button>
           <button className="avatar-button" aria-label="Account menu">SG</button>
         </div>
@@ -713,9 +878,10 @@ export default function Home() {
                   <div className="node-list">
                     {items.map((item) => (
                       <button
-                        className="library-node"
+                        className={`library-node ${item.availability === "planned" ? "is-planned" : ""}`}
                         key={item.type}
-                        draggable
+                        draggable={item.availability !== "planned"}
+                        aria-disabled={item.availability === "planned"}
                         onDragStart={(event) => event.dataTransfer.setData("application/x-flowcraft-node", item.type)}
                         onClick={() => createNode(item.type)}
                       >
@@ -724,7 +890,9 @@ export default function Home() {
                           <strong>{item.name}</strong>
                           <small>{item.description}</small>
                         </span>
-                        <span className="add-mark" aria-hidden="true">＋</span>
+                        {item.availability === "planned"
+                          ? <span className="availability-label">Planned</span>
+                          : <span className="add-mark" aria-hidden="true">＋</span>}
                       </button>
                     ))}
                   </div>
@@ -807,7 +975,10 @@ export default function Home() {
                     >
                       <span className={`node-mark category-${node.category.toLowerCase()}`}>{item.mark}</span>
                       <div className="node-title-copy"><strong>{node.name}</strong><small>{node.category}</small></div>
-                      <span className={`node-status status-${node.status}`}>{node.status === "running" && <span className="run-spinner small" />}{statusLabel(node.status)}</span>
+                      <span className={`node-status status-${node.status}`}>
+                        {["running", "planning", "acting", "observing"].includes(node.status) && <span className="run-spinner small" />}
+                        {statusLabel(node.status)}
+                      </span>
                     </div>
                     <div className="node-summary">
                       {node.type === "llm" ? (
@@ -816,6 +987,8 @@ export default function Home() {
                         <p>{node.config.prompt}</p>
                       ) : node.type === "text-input" ? (
                         <p>{node.config.value}</p>
+                      ) : node.type === "research-agent" ? (
+                        <p>{node.config.goal}</p>
                       ) : node.type === "rag" ? (
                         <><span>{node.config.model}</span><span>Top 3</span></>
                       ) : node.output ? (
@@ -825,7 +998,13 @@ export default function Home() {
                       )}
                     </div>
                     <div className="node-footer">
-                      <span>{node.latency ? `${node.latency} ms` : "Configured"}</span>
+                      <span>
+                        {node.latency
+                          ? `${node.latency} ms`
+                          : node.category === "Agent"
+                            ? `${node.config.allowedTools?.length ?? 0} tools · ${node.config.maxSteps ?? 0} steps`
+                            : "Configured"}
+                      </span>
                       <button onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`}>•••</button>
                     </div>
                     {node.category !== "Output" && (
@@ -891,6 +1070,70 @@ export default function Home() {
                   </div>
                 </div>
 
+                {selectedNode.category === "Agent" && (
+                  <>
+                    <div className="form-section agent-form-section">
+                      <div className="form-section-title"><span>Agent mission</span><span className="required-label">Required</span></div>
+                      <label className="field-label">Role<input value={selectedNode.config.role ?? ""} onChange={(event) => updateConfig("role", event.target.value)} /></label>
+                      <label className="field-label">Goal<textarea rows={4} value={selectedNode.config.goal ?? ""} onChange={(event) => updateConfig("goal", event.target.value)} /></label>
+                      <label className="field-label">
+                        Instructions
+                        <textarea rows={6} value={selectedNode.config.instructions ?? ""} onChange={(event) => updateConfig("instructions", event.target.value)} />
+                        <small className="field-help">The agent may choose actions, but only from its allowed tools.</small>
+                      </label>
+                    </div>
+
+                    <div className="form-section">
+                      <div className="form-section-title"><span>Tool permissions</span><span>{selectedNode.config.allowedTools?.length ?? 0} allowed</span></div>
+                      <div className="tool-permission-list">
+                        {RESEARCH_AGENT_TOOLS.map((tool) => {
+                          const isAllowed = selectedNode.config.allowedTools?.includes(tool.id) ?? false;
+                          return (
+                            <label className={`tool-permission ${isAllowed ? "is-allowed" : ""}`} key={tool.id}>
+                              <input
+                                type="checkbox"
+                                checked={isAllowed}
+                                onChange={() => {
+                                  const current = selectedNode.config.allowedTools ?? [];
+                                  updateConfig(
+                                    "allowedTools",
+                                    isAllowed ? current.filter((toolId) => toolId !== tool.id) : [...current, tool.id],
+                                  );
+                                }}
+                              />
+                              <span className="tool-permission-copy"><strong>{tool.name}</strong><small>{tool.description}</small></span>
+                              <span className={`risk-badge risk-${tool.risk}`}>{tool.risk}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="form-section">
+                      <div className="form-section-title"><span>Memory and limits</span><span>Safety</span></div>
+                      <label className="field-label">Working memory<textarea rows={3} value={selectedNode.config.memory ?? ""} onChange={(event) => updateConfig("memory", event.target.value)} /></label>
+                      <div className="field-row">
+                        <label className="field-label">Maximum steps<input type="number" min="1" max="12" value={selectedNode.config.maxSteps ?? 4} onChange={(event) => updateConfig("maxSteps", Number(event.target.value))} /></label>
+                        <label className="field-label">Timeout (seconds)<input type="number" min="10" max="600" value={selectedNode.config.timeoutSeconds ?? 90} onChange={(event) => updateConfig("timeoutSeconds", Number(event.target.value))} /></label>
+                      </div>
+                      <label className="field-label">
+                        Approval policy
+                        <select value={selectedNode.config.approvalPolicy ?? "sensitive"} onChange={(event) => updateConfig("approvalPolicy", event.target.value)}>
+                          <option value="never">Never require approval</option>
+                          <option value="sensitive">Sensitive tools only</option>
+                          <option value="always">Before every tool</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="form-section">
+                      <div className="form-section-title"><span>Completion contract</span><span>⌃</span></div>
+                      <label className="field-label">Completion condition<textarea rows={3} value={selectedNode.config.completionCondition ?? ""} onChange={(event) => updateConfig("completionCondition", event.target.value)} /></label>
+                      <label className="field-label">Output format<input value={selectedNode.config.outputFormat ?? ""} onChange={(event) => updateConfig("outputFormat", event.target.value)} /></label>
+                    </div>
+                  </>
+                )}
+
                 {(selectedNode.config.prompt !== undefined || selectedNode.type === "prompt") && (
                   <div className="form-section">
                     <div className="form-section-title"><span>Prompt</span><span className="required-label">Required</span></div>
@@ -953,6 +1196,7 @@ export default function Home() {
           <div className="console-header">
             <div className="console-tabs">
               <button className={consoleTab === "logs" ? "active" : ""} onClick={() => setConsoleTab("logs")}>Execution log <span>{logs.length}</span></button>
+              <button className={consoleTab === "trace" ? "active" : ""} onClick={() => setConsoleTab("trace")}>Agent trace <span>{agentTraceEvents.length}</span></button>
               <button className={consoleTab === "outputs" ? "active" : ""} onClick={() => setConsoleTab("outputs")}>Outputs <span>{outputNodes.length}</span></button>
               <button className={consoleTab === "errors" ? "active" : ""} onClick={() => setConsoleTab("errors")}>Errors <span className={errorLogs.length ? "error-count" : ""}>{errorLogs.length}</span></button>
             </div>
@@ -974,6 +1218,31 @@ export default function Home() {
                     </div>
                   ))}
                   {!logs.length && <p className="empty-message">No execution events yet.</p>}
+                </div>
+              )}
+              {consoleTab === "trace" && (
+                <div className="trace-list">
+                  {agentTraceEvents.map(({ event, nodeName }) => (
+                    <div className={`trace-event trace-${event.kind}`} key={event.id}>
+                      <span className="trace-step">{event.step || "!"}</span>
+                      <div className="trace-copy">
+                        <div className="trace-title-row">
+                          <span className="trace-kind">{event.kind}</span>
+                          <strong>{event.title}</strong>
+                          <span>{nodeName}</span>
+                          {event.toolId && <code>{event.toolId}</code>}
+                          {event.latency && <span>{event.latency} ms</span>}
+                        </div>
+                        <p>{event.summary}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {!agentTraceEvents.length && (
+                    <div className="trace-empty">
+                      <span>◎</span>
+                      <div><strong>No agent steps yet</strong><p>Run the hybrid workflow to see plans, tool calls, observations, decisions, and the final output.</p></div>
+                    </div>
+                  )}
                 </div>
               )}
               {consoleTab === "outputs" && (
