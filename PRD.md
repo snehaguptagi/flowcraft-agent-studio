@@ -1,546 +1,302 @@
-# Flowcraft Agent Studio — Product Requirements Document
+# Flowcraft AI Workflow Builder — Product Requirements Document
 
-**Version:** 2.3
+**Version:** 3.0
 
-**Status:** Approved for incremental implementation
+**Status:** Approved for workflow-first implementation
 
-**Last updated:** 17 July 2026
+**Last updated:** 18 July 2026
 
-**Product:** Flowcraft Agent Studio
-
-**Release strategy:** Build and validate agents one at a time
+**Product:** Flowcraft AI Workflow Builder
 
 ## 1. Product in one sentence
 
-Flowcraft is a visual studio where people assemble, run, inspect, and control AI agents and deterministic workflows without writing orchestration code.
+Flowcraft lets people visually assemble, run, inspect, save, and reuse AI workflows without writing orchestration code.
 
-## 2. Simple product explanation
+## 2. Simple explanation
 
-The canvas works like a Lego board for AI work. Users connect inputs, agents, tools, memory, decisions, approvals, and outputs. A normal workflow follows a fixed route. An agent receives a goal and can decide which approved tool to use, evaluate the result, and continue until it finishes or reaches a safety limit.
+Flowcraft is like a flowchart that actually runs. A user places blocks on a canvas and connects them:
 
-Flowcraft supports three execution modes:
+`Input → Prompt → AI model → Output`
 
-1. **Workflow mode:** fixed, predictable steps.
-2. **Agent mode:** goal-driven decisions and tool use.
-3. **Hybrid mode:** a controlled workflow containing one or more agentic steps.
+The user can add retrieval, classification, translation, structured output, branching, merging, and data steps when needed. Each connection makes the execution order visible.
 
-Hybrid mode is the primary product direction because it combines autonomy with business control.
+Agent nodes are optional advanced blocks. They are used only when a task must decide which approved tool to use next based on evidence found during the run. The product itself is an AI workflow builder, not an agent studio.
 
-## 3. Problem statement
+## 3. Problem
 
-Building useful AI agents currently requires teams to combine model APIs, tool definitions, prompts, memory, loops, approvals, security rules, and observability in code. This creates three problems:
+Teams often assemble AI automations with scattered prompts, scripts, model calls, and integrations. The result is difficult for non-engineers to understand, edit, test, and reuse. Existing low-code tools can also hide data flow or make debugging model behavior difficult.
 
-- Domain experts cannot easily design or review agent behavior.
-- Teams cannot see why an agent made a decision or used a tool.
-- Unbounded autonomy can create operational, security, and cost risks.
+Flowcraft should make the complete workflow visible: what enters, which step runs, how values move, what each AI step is configured to do, what failed, and what the final output contains.
 
-Flowcraft should make agent behavior visible, configurable, testable, and governable before it is used in production.
+## 4. Goals
 
-## 4. Product vision
+- Make common AI workflows understandable without code.
+- Let users build by adding, connecting, and configuring reusable nodes.
+- Make execution order, status, output, and errors visible.
+- Support local creation and demonstration with minimal setup.
+- Keep workflows portable through JSON export and import.
+- Allow optional bounded Agent nodes without making autonomy the default.
 
-Flowcraft should become the control plane for practical AI agents: a place to define goals, grant tools, set limits, combine agents with deterministic logic, require human decisions, inspect every step, and reuse successful agent designs.
+## 5. Non-goals for the MVP
 
-The product should feel simple enough for a product manager and explicit enough for an engineer or security reviewer.
-
-## 5. Product principles
-
-### Controlled autonomy
-
-Agents may choose actions only from tools explicitly granted to them. Every run has step, time, token, and cost limits.
-
-### Observable by default
-
-Every plan, action, tool call, observation, decision, approval, error, and final answer appears in a structured trace.
-
-### Human control
-
-Sensitive or irreversible actions can pause for human approval. A user can stop a run at any time.
-
-### Composable parts
-
-Agents, tools, memory, guardrails, inputs, and outputs are reusable nodes that can be combined into larger systems.
-
-### Predictable boundaries
-
-Deterministic workflow nodes remain available around agentic steps so teams can control inputs, branching, approvals, and final actions.
-
-### Build agents incrementally
-
-Each agent is specified, implemented, tested, and accepted before the next agent is added. New agents reuse the same runtime contract rather than introducing one-off behavior.
+- A fully autonomous multi-agent platform.
+- A Supervisor agent that delegates open-ended work.
+- Unrestricted web browsing, computer control, or arbitrary code execution.
+- Production credential storage or external side effects.
+- Multi-user editing and enterprise access control.
+- Long-term personal memory or LangMem integration.
+- Using LangGraph for standard fixed workflows.
+- Hosting the Python runtime inside the static frontend deployment.
 
 ## 6. Target users
 
-### AI product builder
+### Product or operations builder
 
-Designs agent behavior, selects tools, adjusts prompts and limits, and demonstrates working systems.
+Builds and demonstrates repeatable AI workflows without writing orchestration code.
 
-### Operations or domain expert
+### Domain expert
 
-Defines the real-world goal and process, reviews agent decisions, and approves sensitive actions without writing code.
+Defines prompts, rules, examples, and expected outputs, then reviews whether the workflow reflects the real process.
 
 ### Engineer or solutions architect
 
-Connects real tools and models, reviews traces, enforces contracts, and moves validated agent designs into production.
+Connects models and integrations, checks schemas and traces, and prepares validated workflows for production infrastructure.
 
-### Risk or security reviewer
+## 7. Product principles
 
-Inspects tool permissions, data boundaries, approval rules, execution limits, and auditable traces.
+### Workflow first
 
-## 7. Core concepts
+If the steps are known, they must be represented as explicit connected nodes.
 
-### Agent
+### Simple path first
 
-A goal-directed node that can plan, choose from allowed tools, observe results, and decide whether to continue or finish.
+A new user should understand the default Input → Prompt → Model → Output workflow without learning agent terminology.
 
-### Tool
+### Visible execution
 
-A narrowly defined capability granted to an agent, such as searching the web, reading a document, querying a database, or drafting an email. Tools have typed inputs, outputs, and permission levels.
+The canvas, execution log, outputs, and errors must show what ran and what happened.
 
-### Memory
+### Advanced only when justified
 
-Information available across steps or runs. MVP memory types are working memory for the current run and optional persisted memory for future server-backed releases.
+Agent nodes are used only when runtime evidence must determine the next approved action. They must have tool and step limits.
 
-### Guardrail
+### Local by default
 
-A rule that validates an input, tool request, observation, or final output. A guardrail may allow, transform, block, or require approval.
+The frontend must run at localhost without cloud credentials. Optional services should add capability without blocking the basic builder.
 
-### Human approval
+## 8. Core concepts
 
-A pause that presents the proposed action, reasoning summary, inputs, and risk level to a person before execution continues.
+### Workflow
 
-### Supervisor
+A saved graph containing nodes, connections, configuration, and metadata.
 
-An agent that delegates tasks to specialist agents, reviews their outputs, and determines when the overall goal is complete.
+### Node
 
-### Trace
+A reusable step with typed configuration, inputs, outputs, and a visible runtime state.
 
-The ordered record of plans, actions, tool calls, observations, decisions, usage, approvals, errors, and outputs from a run.
+### Connection
 
-## 8. Agent runtime contract
+A directed edge that moves a value from an upstream node to a downstream node and defines execution dependencies.
 
-Every agent must use the same contract.
+### Run
 
-### Inputs
+One execution of the current workflow, including status, logs, outputs, duration, and errors.
 
-- Goal
-- User request or upstream value
-- Optional context
-- Available tools
-- Available memory
-- Policy and guardrails
-- Execution budget
+### Agent node
 
-### Configuration
+An optional bounded node that may choose among explicitly approved tools over multiple steps. Its internal activity appears in a separate trace.
 
-- Agent name and role
-- System instructions
-- Model and provider
-- Allowed tools
-- Memory scope
-- Maximum steps
-- Timeout
-- Token or cost budget
-- Approval policy
-- Completion condition
-- Output format
+## 9. MVP node library
 
-### Runtime states
+### Input
 
-- Idle
-- Queued
-- Planning
-- Acting
-- Waiting for tool
-- Observing
-- Waiting for approval
-- Completed
-- Failed
-- Stopped
-- Limit reached
+- Text input
+- Text document input for TXT, Markdown, CSV, and JSON
+- Data table input for CSV and JSON
+- URL input placeholder
 
-### Step lifecycle
+### AI
 
-1. **Plan:** determine the next useful action.
-2. **Act:** call one allowed tool or produce a response.
-3. **Observe:** record and evaluate the result.
-4. **Decide:** continue, retry, request approval, delegate, or finish.
-5. **Stop:** finish when the completion condition is met or a limit is reached.
+- Prompt
+- Language model
+- Embedding
+- Retrieval-augmented generation
+- Summarizer
+- Translator
+- Classification
+- Structured output
 
-### Outputs
+### Logic
 
-- Final answer or structured result
-- Completion status
-- Structured trace
-- Tool calls and observations
-- Usage and latency
-- Approval history
-- Error details when applicable
+- If/Else
+- Merge
+- Variable store
+- Delay
 
-## 9. Agent-by-agent delivery roadmap
+### Optional Agent
 
-### Foundation — Agent runtime
+- Research Agent
+- Document Agent
+- Data Analyst
 
-Build the reusable Agent node, runtime state machine, step trace, tool permissions, limits, and approval configuration. All specialist agents depend on this foundation.
+### Output
 
-### Agent 1 — Research Agent
+- Chat output
+- Markdown output
+- JSON output
+- Download output
 
-**Purpose:** Investigate a question, collect evidence from approved sources, organize findings, and return a concise answer with source references.
+## 10. Primary user journey
 
-**Initial tools:** web search, page reader, note collector. The first UI increment uses safe sandbox tools; live connectors are added server-side later.
+1. Open the app locally or from an optional hosted demo.
+2. Start from the standard AI workflow template or a blank canvas.
+3. Add nodes from the left library.
+4. Connect nodes in execution order.
+5. Select each node and configure it in the right inspector.
+6. Run validation.
+7. Run the workflow.
+8. Inspect logs, intermediate outputs, final outputs, and errors.
+9. Refine, autosave, export, or import the workflow.
 
-**Completion condition:** enough relevant evidence is collected to answer the goal, or the step limit is reached.
+## 11. Functional requirements
 
-**Output:** answer, key findings, source list, confidence, and full trace.
-
-### Agent 2 — Document Agent
-
-**Purpose:** Read uploaded or connected documents, extract facts, compare content, and produce summaries or structured answers.
-
-**Tools:** document reader, text extractor, section finder, citation collector.
-
-**Initial inputs:** one to five user-approved TXT, Markdown, CSV, or JSON text documents, plus an optional question from an upstream node. PDF and DOCX binary extraction are a later server-parser increment.
-
-**Completion condition:** enough cited evidence is collected to answer the question, or the step limit is reached.
-
-**Output:** answer, key evidence, document-and-section citations, confidence, and full trace.
-
-### Agent 3 — Data Analyst Agent
-
-**Purpose:** Inspect tabular data, calculate metrics, identify anomalies, and produce an explanation or structured report.
-
-**Tools:** spreadsheet reader, query/calculation tool, chart or table output.
-
-**Initial inputs:** one to three user-approved CSV files or JSON arrays of objects, limited to 500 analyzed rows per run.
-
-**Completion condition:** the table shape, numeric metrics, missing values, and transparent anomaly review are complete, or the step limit is reached.
-
-**Output:** table summary, deterministic metrics, IQR anomalies, calculation method, confidence, and full trace.
-
-### Agent 4 — Writer Agent
-
-**Purpose:** Draft or revise content using an approved brief, evidence, tone, and output format.
-
-**Tools:** outline builder, evidence reader, style guide, revision tool.
-
-### Agent 5 — Supervisor Agent
-
-**Purpose:** Break a broad goal into tasks, delegate to specialist agents, review results, and assemble the final outcome.
-
-**Tools:** specialist agents exposed as callable capabilities, approval request, task state.
-
-The Supervisor Agent is intentionally last because delegation should use mature specialist contracts.
-
-## 10. MVP scope
-
-The first agentic MVP includes:
-
-- Existing deterministic workflow canvas and nodes.
-- A new Agent category in the node library.
-- Shared Agent node configuration.
-- Research Agent as the first specialist agent.
-- Document Agent as the second specialist agent.
-- Data Analyst as the third specialist agent.
-- Tool permission selection.
-- Working-memory configuration.
-- Step, timeout, and approval limits.
-- Visible agent plan/act/observe trace.
-- Agent execution states on the canvas.
-- Hybrid workflows where deterministic nodes feed an Agent node and receive its result.
-- Local workflow persistence and JSON portability.
-- Deterministic sandbox execution until the secure server runtime is introduced.
-- Server-backed LangGraph execution for Research and Document agents when the local runtime is configured.
-
-## 11. Non-goals for the first agentic MVP
-
-- Unrestricted autonomous browsing or computer control.
-- Live external side effects such as sending email, publishing, purchasing, deleting, or modifying third-party data.
-- User-provided arbitrary code execution.
-- Production credential storage.
-- Persistent semantic memory across users or organizations.
-- Binary PDF or DOCX extraction in the browser; those formats require a controlled server parser.
-- Arbitrary code, SQL, spreadsheet formulas, macros, or unrestricted Python execution for data analysis.
-- Multi-user collaboration.
-- Fully autonomous supervisor behavior before specialist agents are validated.
-
-## 12. Functional requirements
-
-### 12.1 Agent library — P0
-
-- Add an Agent category to the node library.
-- Clearly distinguish generic agents from specialist agent templates.
-- Show implemented agents separately from planned agents.
-- Allow an implemented agent to be added by click or drag-and-drop.
-
-### 12.2 Agent configuration — P0
-
-- Configure role, goal, and system instructions.
-- Select model and provider.
-- Grant tools from an explicit allowlist.
-- Configure working memory.
-- Set maximum steps, timeout, and optional token or cost budget.
-- Choose approval behavior: never, for sensitive tools, or before every tool.
-- Define expected output format and completion condition.
-- Autosave configuration changes.
-
-### 12.3 Tool system — P0
-
-- Every tool has a stable ID, description, input schema, output schema, and risk level.
-- An agent may call only tools explicitly granted to it.
-- Tool calls appear in the trace before and after execution.
-- Sensitive tools cannot run without the configured approval.
-- Tool errors are returned as observations rather than hidden.
-
-### 12.4 Agent execution — P0
-
-- Validate the goal, instructions, model, tool grants, and limits before execution.
-- Run the agent through the shared plan/act/observe/decide loop.
-- Enforce the maximum step count and timeout.
-- Allow the user to stop an active run.
-- Mark a run completed, failed, stopped, or limit reached.
-- Pass the final agent output to connected downstream nodes.
-
-### 12.5 Trace inspector — P0
-
-- Show each step in chronological order.
-- Distinguish plans, tool calls, observations, decisions, approvals, and final output.
-- Show the active agent and step number.
-- Include latency and usage when available.
-- Allow inspection without exposing hidden provider reasoning. The trace stores concise decision summaries, not private chain-of-thought.
-
-### 12.6 Human approval — P1
-
-- Pause the run when approval is required.
-- Present the proposed tool, inputs, expected effect, and risk level.
-- Allow approve, reject, or edit-and-approve actions.
-- Record the decision in the trace.
-- Do not auto-approve when the user is absent.
-
-### 12.7 Workflow canvas — P0
-
-- Preserve existing add, move, connect, delete, pan, zoom, fit, minimap, undo, and redo behavior.
-- Support connections between deterministic nodes and Agent nodes.
-- Render the current agent state on the node.
-- Display a clear visual difference between workflow, agent, tool, memory, and control nodes.
-
-### 12.8 Validation — P0
-
-Detect and explain:
-
-- Missing agent goal or instructions.
-- Missing model.
-- No allowed tools when the completion condition requires tools.
-- Invalid tool IDs or unavailable tools.
-- Missing step or timeout limits.
-- Disconnected required inputs.
-- Broken connections and circular dependencies.
-- Sensitive tools without a compatible approval policy.
-
-### 12.9 Persistence and portability — P0
-
-- Autosave the complete agentic workflow locally.
-- Include agent policies, allowed tools, limits, memory settings, and connections in JSON export.
-- Import compatible schemas and reject malformed or unsupported versions.
-- Never export secrets.
+### 11.1 Canvas — P0
+
+- Add nodes by click or drag-and-drop.
+- Move and delete nodes.
+- Connect compatible nodes.
+- Pan, zoom, fit, and use a minimap.
+- Undo and redo graph edits.
+- Show idle, queued, running, completed, and failed states.
+
+### 11.2 Node configuration — P0
+
+- Edit the selected node's name and type-specific settings.
+- Configure prompt text and variables.
+- Configure model provider, model, temperature, and token limit.
+- Configure input values and output formats.
+- Autosave configuration changes locally.
+
+### 11.3 Workflow execution — P0
+
+- Validate before execution.
+- Execute nodes after their upstream dependencies complete.
+- Pass upstream values into downstream steps.
+- Prevent unsupported circular execution.
+- Show run progress and duration.
+- Surface errors without hiding failed steps.
+
+### 11.4 Inspection — P0
+
+- Show chronological execution logs.
+- Show intermediate and final outputs.
+- Show validation and runtime errors.
+- Show Agent trace events only when an Agent node runs.
+- Do not expose hidden model chain-of-thought.
+
+### 11.5 Persistence and portability — P0
+
+- Autosave the complete workflow in browser storage.
+- Start with a new storage schema for the workflow-first default.
+- Export versioned JSON with no secrets.
+- Import compatible workflow JSON and reject malformed files.
+
+### 11.6 Optional Agent nodes — P1
+
+- Keep Research, Document, and Data Analyst nodes available under an Agent category.
+- Require explicit goals, instructions, allowed tools, step limits, and timeouts.
+- Use browser-safe demonstrations when the optional server is unavailable.
+- Use the local FastAPI/LangGraph service when configured.
+- Preserve a structured, user-visible trace.
+- Do not add Writer or Supervisor agents to the immediate roadmap.
+
+## 12. Agent selection rule
+
+Use a standard workflow node when the operation and sequence are known. This includes prompting, summarization, classification, translation, extraction, formatting, calculations, and fixed retrieval pipelines.
+
+Use an Agent node only when all of these are true:
+
+- The next action cannot be fixed at design time.
+- The node must choose among multiple approved tools.
+- Multiple steps may be needed to reach a completion condition.
+- The task can be bounded by tool, time, and step limits.
+- The added autonomy provides clear value over an explicit workflow.
 
 ## 13. Product layout
 
-- **Top toolbar:** workflow identity, save state, history, templates, run/stop controls.
-- **Left panel:** Inputs, Agents, AI, Tools, Memory, Logic, Control, and Outputs.
-- **Center canvas:** agentic and deterministic graph with live states.
-- **Right panel:** selected node configuration, permissions, limits, and latest output.
-- **Bottom panel:** execution trace, outputs, approvals, validation errors, and usage.
+- **Top toolbar:** workflow identity, save state, history, template, save/export, and run.
+- **Left panel:** Input, AI, Logic, optional Agent, and Output libraries.
+- **Center canvas:** nodes, connections, minimap, zoom, and runtime states.
+- **Right panel:** selected-node configuration and latest output.
+- **Bottom panel:** execution log, optional Agent trace, outputs, and errors.
 
-## 14. Data model
+## 14. Technical architecture
 
-### Agent definition
+### Frontend
 
-- `id`
-- `type`
-- `name`
-- `role`
-- `goal`
-- `instructions`
-- `provider`
-- `model`
-- `allowedTools[]`
-- `memory`
-- `limits`
-- `approvalPolicy`
-- `completionCondition`
-- `outputFormat`
+- React 19 and TypeScript
+- vinext and Vite
+- Custom visual graph canvas
+- Browser local storage for device-local drafts
+- Cloudflare-compatible build output
 
-### Agent run
+The frontend is the core product and must run independently at `http://localhost:3000`.
 
-- `id`
-- `agentId`
-- `workflowId`
-- `status`
-- `startedAt`
-- `completedAt`
-- `currentStep`
-- `trace[]`
-- `usage`
-- `finalOutput`
-- `error`
+### Standard workflow runtime
 
-### Trace event
+The current prototype runs standard nodes through the TypeScript workflow executor. Production model calls and credentials will move behind secure server endpoints, but fixed workflows do not require an agent framework.
 
-- `id`
-- `step`
-- `timestamp`
-- `kind`: plan, action, observation, decision, approval, output, error
-- `summary`
-- `toolId`
-- `input`
-- `output`
-- `risk`
-- `latency`
+### Optional Agent-node runtime
 
-### Tool definition
+- FastAPI provides versioned endpoints for advanced Agent nodes.
+- LangGraph orchestrates only those nodes that genuinely need multi-step tool selection.
+- LangSmith is optional engineering telemetry, not a product dependency or customer audit store.
+- LangMem is deferred until retention, deletion, provenance, tenancy, and evaluation requirements exist.
 
-- `id`
-- `name`
-- `description`
-- `riskLevel`
-- `inputSchema`
-- `outputSchema`
-- `requiresApproval`
+## 15. Data and safety boundaries
 
-## 15. Technical architecture
+- No secrets in browser storage or workflow exports.
+- No arbitrary Python, JavaScript, SQL, formulas, or macros from users.
+- No privileged external side effects in the MVP.
+- Document and dataset inputs are run-scoped in the optional runtime.
+- Agent tools must be explicit, typed, and bounded.
+- User-visible traces contain concise event summaries, not private reasoning.
 
-### Current prototype layer
+## 16. Acceptance criteria
 
-- React 19 and TypeScript.
-- vinext/Vite application structure.
-- Custom visual graph canvas.
-- Client-side state and local storage.
-- Deterministic sandbox agent runtime for safe interaction design.
+The MVP is accepted when:
 
-### Production runtime layer
+- A first-time user can recognize the product as an AI workflow builder.
+- The default canvas shows Input → Prompt → Model → Output without an Agent node.
+- A user can add, configure, connect, run, save, export, and import workflows.
+- Logs, outputs, and errors are inspectable.
+- The frontend runs locally without the Python service.
+- Optional Agent nodes still run through a safe fallback or configured local service.
+- Build, lint, frontend smoke tests, backend lint, and backend tests pass.
+- Documentation clearly distinguishes localhost, GitHub, and the optional hosted demo.
 
-The production implementation uses a Python service behind the visual editor:
+## 17. Delivery priorities
 
-- **FastAPI** exposes versioned agent, run, health, and later approval endpoints.
-- **LangGraph** is the authoritative agent orchestration runtime. Each specialist agent is a typed graph with explicit nodes, transitions, limits, and resumable run state.
-- **LangSmith** is opt-in from the first server-backed run for engineering traces, evaluation datasets, and regression testing. Flowcraft still owns the user-visible trace and immutable product audit record.
-- **LangGraph checkpointers** hold short-term thread and run state. The local service starts with an in-memory checkpointer; production moves to Postgres.
-- **A Flowcraft memory interface** separates working, thread, and long-term memory. **LangMem is deferred until a specialist agent has a validated cross-run memory need**, then used selectively for structured memory extraction and consolidation.
-- Document retrieval and citations use a dedicated retrieval/indexing layer rather than LangMem. LangMem is not the document knowledge base.
-- Server-sent events will stream run events to the canvas after the synchronous Agent 1 API contract is stable.
+### Now
 
-The runtime layer will add:
+- Workflow-first product framing and default template
+- Reliable node configuration and graph execution
+- Local setup and clear documentation
+- Public source repository
+- Existing optional Research, Document, and Data Analyst nodes
 
-- Authenticated server-side agent runs.
-- Durable workflow, run, trace, and approval records.
-- Encrypted credential and connector management.
-- Provider adapters for supported LLMs.
-- Typed server-side tools.
-- Run cancellation, timeout, retry, queueing, and streaming events.
-- Policy enforcement before every tool call.
-- Usage, cost, latency, and error observability.
+### Next
 
-The browser must never receive provider secrets or execute privileged tools directly.
+- Real server-backed model execution for standard AI nodes
+- Typed ports and connection compatibility
+- Workflow templates and test cases
+- Secure connector abstractions
+- Better run history and debugging
 
-### Specialist implementation boundary
+### Later, only with evidence
 
-The first server-backed Research Agent is deliberately deterministic: it runs approved sandbox research tools through a real LangGraph state graph without requiring a model key or unrestricted web access. This validates the graph contract, typed API, permissions, limits, trace mapping, and frontend fallback before live search or model providers are introduced.
-
-The second server-backed Document Agent follows the same pattern. It accepts approved text documents, preserves document identity, extracts sections, ranks evidence, and returns explicit citations without a model key. Document knowledge remains run-scoped and separate from LangMem.
-
-The third server-backed Data Analyst parses bounded CSV or JSON tables, profiles fields, calculates deterministic summaries, and flags numeric outliers with a visible 1.5 × IQR rule. It does not execute user code, formulas, SQL, or macros.
-
-The browser sandbox remains a safe fallback whenever the local agent service is not configured or reachable. A configured server run must identify itself as `langgraph`; a fallback run must identify itself as `browser-sandbox`.
-
-### Memory layers
-
-1. **Run working memory:** transient facts used inside one graph execution.
-2. **Thread memory:** resumable state for a workflow conversation, stored by a LangGraph checkpointer.
-3. **Long-term semantic memory:** user- or organization-scoped structured facts, added only with explicit retention, deletion, and evaluation rules.
-4. **Document knowledge:** indexed source content with provenance and citations; kept separate from personal or procedural memory.
-
-The detailed decision and alternatives are recorded in `docs/architecture/ADR-001-agent-platform.md`.
-
-## 16. Security and safety requirements
-
-- Deny tool access by default.
-- Store no credentials in workflow JSON or local storage.
-- Execute privileged tools only on the server.
-- Validate all tool inputs against schemas.
-- Require approval for configured sensitive actions.
-- Enforce step, time, token, and cost limits.
-- Sanitize untrusted tool outputs before reuse.
-- Separate decision summaries from private chain-of-thought.
-- Record immutable audit events for production runs.
-- Support immediate user cancellation.
-
-## 17. Research Agent acceptance criteria
-
-Agent 1 is complete when:
-
-- A Research Agent can be added from the Agent library.
-- Its goal, instructions, model, tools, memory, limits, and approval policy are editable.
-- The workflow validator catches missing agent configuration.
-- A valid sandbox run produces at least three visible trace steps.
-- The trace includes a plan, a tool call, an observation, a decision, and a final output.
-- The step limit is enforced and visible.
-- The Research Agent output can feed a downstream output node.
-- Workflow export/import preserves the full agent configuration.
-- The application passes build, lint, and smoke tests.
-- A versioned FastAPI endpoint runs the Research Agent through LangGraph.
-- The frontend uses the server runtime when configured and safely falls back to the browser sandbox when unavailable.
-- LangSmith tracing can be enabled with server-side environment variables without exposing credentials to the browser.
-
-## 18. Document Agent acceptance criteria
-
-Agent 2 is complete when:
-
-- A Document Agent can be added from the Agent library.
-- A user can load or paste a supported text document into a Text Document input node.
-- The Document Agent requires a connected document and all four approved tools.
-- Its goal, instructions, model, tools, memory, limits, and approval policy are editable.
-- A valid run emits plan, action, observation, decision, and output trace events.
-- The result contains evidence citations with document names and section labels.
-- The step limit and unsupported-document failure paths are tested.
-- A versioned FastAPI endpoint runs the Document Agent through LangGraph.
-- The frontend uses the server runtime when configured and safely falls back to the browser sandbox.
-- Workflow export and import preserve document text and Document Agent configuration without secrets.
-- Backend tests, frontend build, lint, and smoke tests pass.
-
-## 19. Data Analyst acceptance criteria
-
-Agent 3 is complete when:
-
-- A Data Analyst can be added from the Agent library.
-- A user can load or paste a CSV file or JSON array into a Data Table input node.
-- The Data Analyst requires a connected table and all four approved tools.
-- Its goal, instructions, model, tools, memory, limits, and approval policy are editable.
-- A valid run emits plan, action, observation, decision, and output trace events.
-- The result reports row and column counts, missing values, and deterministic numeric metrics.
-- Numeric anomalies include a row number, field, value, and transparent IQR explanation.
-- Invalid tables, missing permissions, and step-limit paths are tested.
-- A versioned FastAPI endpoint runs the Data Analyst through LangGraph.
-- The frontend uses the server runtime when configured and safely falls back to the browser sandbox.
-- Backend tests, frontend build, lint, and smoke tests pass.
-
-## 20. Success measures
-
-- At least 80% of test users can add and run each ready specialist agent without assistance.
-- Users can correctly explain what the agent did after reading the trace.
-- No sandbox run exceeds its configured maximum steps.
-- Every tool call is attributable to an agent, step, and permission grant.
-- Validation errors are resolved without external documentation in at least 90% of tests.
-
-## 21. Delivery sequence
-
-1. Commit this PRD as the product contract.
-2. Connect the repository to a private GitHub remote.
-3. Implement the shared Agent node and runtime types.
-4. Implement the Research Agent and its sandbox tools.
-5. Add the agent trace experience.
-6. Validate, commit, push, and deploy Agent 1.
-7. Review Agent 1 against its acceptance criteria.
-8. Implement and validate the Document Agent on the shared runtime.
-9. Commit, push, and deploy Agent 2.
-10. Implement and validate the Data Analyst on the shared runtime.
-11. Commit, push, and deploy Agent 3.
-12. Begin the Writer Agent only after Agent 3 is accepted.
+- Human approvals for side-effecting tools
+- Durable server persistence and collaboration
+- Additional Agent nodes
+- Long-term memory
+- Production hosting for the backend runtime

@@ -13,16 +13,16 @@ async function render() {
   );
 }
 
-test("server-renders the Flowcraft agent workflow studio", async () => {
+test("server-renders the Flowcraft AI workflow builder", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
-  assert.match(html, /<title>Flowcraft — Agent Workflow Studio<\/title>/i);
+  assert.match(html, /<title>Flowcraft — AI Workflow Builder<\/title>/i);
   assert.match(html, /Flowcraft/);
   assert.match(html, /Node library/);
   assert.match(html, /Run workflow/);
-  assert.match(html, /Agentic support copilot/);
+  assert.match(html, /Customer support reply/);
   assert.match(html, /Research Agent/);
   assert.match(html, /Agent trace/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

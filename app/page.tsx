@@ -107,7 +107,7 @@ type CatalogItem = {
   availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-agent-workflow-v2";
+const STORAGE_KEY = "flowcraft-ai-workflow-v3";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 
@@ -206,8 +206,6 @@ const catalog: CatalogItem[] = [
       outputFormat: "Summary, metrics, anomalies, method, confidence",
     },
   },
-  { type: "writer-agent", name: "Writer Agent", category: "Agent", description: "Draft evidence-grounded content", mark: "WA", availability: "planned", config: {} },
-  { type: "supervisor-agent", name: "Supervisor", category: "Agent", description: "Delegate work to specialist agents", mark: "SA", availability: "planned", config: {} },
   { type: "prompt", name: "Prompt", category: "AI", description: "Build a reusable prompt", mark: "P", config: { prompt: "Answer the customer clearly using only the provided context.", variables: "question, context" } },
   { type: "llm", name: "LLM", category: "AI", description: "Generate with a language model", mark: "AI", config: { provider: "OpenAI", model: "GPT-4.1 mini", temperature: 0.3, maxTokens: 900 } },
   { type: "embedding", name: "Embedding", category: "AI", description: "Create vector embeddings", mark: "E", config: { provider: "OpenAI", model: "text-embedding-3-small" } },
@@ -239,37 +237,13 @@ const initialNodes: WorkflowNode[] = [
     config: { value: "How can I reset a locked workspace?" },
   },
   {
-    id: "research-1",
-    type: "research-agent",
-    category: "Agent",
-    name: "Research support answer",
-    description: "Plan, gather evidence and synthesize findings",
-    x: 342,
-    y: 88,
-    status: "idle",
-    config: {
-      role: "Evidence-first support researcher",
-      goal: "Research the customer question and return a sourced recovery answer.",
-      instructions: "Use approved sandbox tools, compare the strongest sources, preserve source labels, and stop when the answer is supported.",
-      provider: "OpenAI",
-      model: "GPT-4.1 mini",
-      allowedTools: ["web-search", "page-reader", "note-collector"],
-      memory: "Remember evidence and source labels during this run",
-      maxSteps: 4,
-      timeoutSeconds: 90,
-      approvalPolicy: "sensitive",
-      completionCondition: "Three relevant sources support a clear answer",
-      outputFormat: "Answer, findings, sources, confidence",
-    },
-  },
-  {
     id: "prompt-1",
     type: "prompt",
     category: "AI",
     name: "Support prompt",
     description: "Build a reusable prompt",
     x: 342,
-    y: 346,
+    y: 220,
     status: "idle",
     config: {
       prompt: "Answer clearly using only the retrieved help-center context. Include the exact next step.",
@@ -301,14 +275,12 @@ const initialNodes: WorkflowNode[] = [
 ];
 
 const initialEdges: WorkflowEdge[] = [
-  { id: "e-input-research", from: "input-1", to: "research-1" },
   { id: "e-input-prompt", from: "input-1", to: "prompt-1" },
-  { id: "e-research-llm", from: "research-1", to: "llm-1" },
   { id: "e-prompt-llm", from: "prompt-1", to: "llm-1" },
   { id: "e-llm-output", from: "llm-1", to: "output-1" },
 ];
 
-const categoryOrder: NodeCategory[] = ["Input", "Agent", "AI", "Logic", "Output"];
+const categoryOrder: NodeCategory[] = ["Input", "AI", "Logic", "Agent", "Output"];
 
 function toolsForAgent(type: string) {
   if (type === "document-agent") return DOCUMENT_AGENT_TOOLS;
@@ -362,14 +334,14 @@ function phaseToNodeStatus(phase: AgentPhase): NodeStatus {
 export default function Home() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges);
-  const [selectedId, setSelectedId] = useState<string>("research-1");
-  const [workflowName, setWorkflowName] = useState("Agentic support copilot");
+  const [selectedId, setSelectedId] = useState<string>("prompt-1");
+  const [workflowName, setWorkflowName] = useState("Customer support reply");
   const [search, setSearch] = useState("");
   const [zoom, setZoom] = useState(0.84);
   const [pan, setPan] = useState({ x: 28, y: 30 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Research, Document, and Data Analyst agents are ready with safe browser fallbacks." },
+    { id: "ready", time: "Ready", level: "info", message: "Workflow-first template ready. Agent nodes are optional for dynamic tool use." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(true);
@@ -513,7 +485,7 @@ export default function Home() {
   const createNode = useCallback((type: string, x?: number, y?: number) => {
     const item = catalog.find((candidate) => candidate.type === type) ?? catalog[0];
     if (item.availability === "planned") {
-      showToast(`${item.name} is planned after the Research Agent`);
+      showToast(`${item.name} is planned for a later release`);
       return;
     }
     const id = `${item.type}-${Date.now()}`;
@@ -1073,7 +1045,7 @@ export default function Home() {
   };
 
   const exportWorkflow = () => {
-    const payload = JSON.stringify({ version: 2, name: workflowName, nodes, edges }, null, 2);
+    const payload = JSON.stringify({ version: 3, name: workflowName, nodes, edges }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1102,9 +1074,9 @@ export default function Home() {
 
   const resetTemplate = () => {
     commit(cloneSnapshot(initialNodes, initialEdges).nodes, cloneSnapshot(initialNodes, initialEdges).edges);
-    setWorkflowName("Agentic support copilot");
-    setSelectedId("research-1");
-    setLogs([{ id: "ready-reset", time: "Ready", level: "info", message: "Research Agent hybrid template loaded." }]);
+    setWorkflowName("Customer support reply");
+    setSelectedId("prompt-1");
+    setLogs([{ id: "ready-reset", time: "Ready", level: "info", message: "Standard AI workflow template loaded." }]);
     setValidationIssues([]);
     showToast("Template loaded");
   };
@@ -1155,7 +1127,7 @@ export default function Home() {
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
           <div>
             <div className="brand-name">Flowcraft</div>
-            <div className="brand-context">Agent workflow studio</div>
+            <div className="brand-context">AI workflow builder</div>
           </div>
         </div>
 
@@ -1179,7 +1151,7 @@ export default function Home() {
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
             <span className={isRunning ? "run-spinner" : "play-mark"}>{isRunning ? "" : "▶"}</span>
-            {isRunning ? "Running agents" : "Run workflow"}
+            {isRunning ? "Running workflow" : "Run workflow"}
           </button>
           <button className="avatar-button" aria-label="Account menu">SG</button>
         </div>
@@ -1640,7 +1612,7 @@ export default function Home() {
                   {!agentTraceEvents.length && (
                     <div className="trace-empty">
                       <span>◎</span>
-                      <div><strong>No agent steps yet</strong><p>Run the hybrid workflow to see plans, tool calls, observations, decisions, and the final output.</p></div>
+                      <div><strong>No agent activity</strong><p>Agent traces appear only when an optional Agent node runs. Standard AI workflows use the execution log.</p></div>
                     </div>
                   )}
                 </div>

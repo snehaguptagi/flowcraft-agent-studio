@@ -1,6 +1,6 @@
-# Flowcraft agent runtime
+# Optional Flowcraft Agent-node runtime
 
-This service runs Flowcraft specialist agents on the server. Agent 1 is a deterministic Research Agent, Agent 2 is a cited Document Agent, and Agent 3 is a bounded Data Analyst. All are orchestrated by LangGraph, so their graphs, permissions, limits, traces, and APIs can be tested without a model key or unrestricted external access.
+Flowcraft's main product is the visual AI workflow builder, which does not require this service. This optional service runs the Research, Document, and Data Analyst nodes when a workflow genuinely needs bounded multi-step tool selection. They are orchestrated by LangGraph so their graphs, permissions, limits, traces, and APIs can be tested without a model key or unrestricted external access.
 
 ## Start locally
 

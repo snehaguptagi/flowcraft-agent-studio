@@ -1,12 +1,12 @@
-# ADR-001: Agent runtime, observability, and memory platform
+# ADR-001: Optional agent-node runtime, observability, and memory boundary
 
-- **Status:** Accepted
+- **Status:** Accepted with scope clarified by ADR-002
 - **Date:** 17 July 2026
 - **Decision owners:** Flowcraft product and engineering
 
 ## Context
 
-Flowcraft needs one reusable technical foundation for specialist agents. The foundation must support visible state transitions, tool permissions, limits, approvals, resumable execution, evaluation, and several kinds of memory without coupling the visual editor to one model provider.
+Flowcraft's primary product is an AI workflow builder. Some advanced nodes still need a reusable technical foundation for dynamic, multi-step work. That optional foundation must support visible state transitions, tool permissions, limits, approvals, resumable execution, evaluation, and several kinds of memory without coupling the visual editor to one model provider.
 
 Agent 1 is the Research Agent. It must prove the runtime contract safely before the product adds live model calls, web access, privileged connectors, or persistent user memory.
 
@@ -14,7 +14,7 @@ Agent 1 is the Research Agent. It must prove the runtime contract safely before 
 
 ### LangGraph is the execution runtime
 
-Every server-backed specialist agent is implemented as a typed LangGraph graph. Graph nodes represent meaningful work such as validation, planning, tool execution, observation, synthesis, approval, and failure handling. Conditional edges make limits and completion behavior explicit.
+Only server-backed Agent nodes are implemented as typed LangGraph graphs. Normal workflow execution does not require LangGraph. Agent graph nodes represent meaningful work such as validation, planning, tool execution, observation, synthesis, approval, and failure handling. Conditional edges make limits and completion behavior explicit.
 
 The React editor remains the product surface and workflow authoring system. It sends a versioned run request to a Python FastAPI service and renders Flowcraft trace events returned by that service.
 

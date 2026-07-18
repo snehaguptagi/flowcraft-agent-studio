@@ -1,70 +1,45 @@
-# Flowcraft Agent Studio
+# Flowcraft AI Workflow Builder
 
-Flowcraft is a visual studio for building, running, inspecting, and controlling AI agents and deterministic workflows without writing orchestration code.
+Flowcraft is a visual builder for creating, connecting, running, and inspecting reusable AI workflows without writing orchestration code.
 
-It supports three product patterns:
+The core product is workflow-first:
 
-- **Workflow mode:** fixed, predictable steps
-- **Agent mode:** goal-driven planning and tool use
-- **Hybrid mode:** controlled workflows containing agentic steps
+`Input → Prompt → AI model → Output`
 
-The agentic product contract and delivery sequence are defined in [PRD.md](./PRD.md).
+Retrieval, classification, translation, logic, and structured-output nodes can be added as explicit steps. Research, Document, and Data Analyst agents remain available as optional advanced nodes only when a task genuinely needs dynamic tool selection over multiple steps.
 
-## Current milestone
+## What is built
 
-**Agents 1–3: Research, Document, and Data Analyst agents**
+- Visual drag-and-connect workflow canvas
+- Input, AI, Logic, optional Agent, and Output node libraries
+- Node configuration, validation, run states, logs, outputs, and error inspection
+- Local autosave plus versioned JSON import/export
+- Standard workflow-first starter template
+- Optional Research, Document, and Data Analyst nodes
+- Safe browser demonstrations for the three advanced nodes
+- Optional local FastAPI and LangGraph service for those Agent nodes
+- Optional LangSmith engineering tracing
 
-The current implementation includes:
-
-- Shared agent configuration and runtime states
-- Research Agent with a goal, role, instructions, and completion condition
-- Explicit tool allowlist for search, page reading, and evidence notes
-- Working-memory, maximum-step, timeout, and approval settings
-- Plan → action → observation → decision execution loop
-- Structured Agent Trace panel
-- Hybrid execution with deterministic upstream and downstream nodes
-- Validation of agent goals, tools, models, and limits
-- Local autosave and versioned JSON import/export
-- A versioned Python API that runs the Research Agent as a typed LangGraph graph
-- Opt-in LangSmith tracing for engineering observability
-- A memory boundary prepared for evaluated LangMem use cases later
-- Document Agent with approved text ingestion, section extraction, evidence ranking, and citations
-- TXT, Markdown, CSV, and JSON document inputs up to 100 KB in the current milestone
-- Shared permissions, limits, traces, API behavior, and safe browser fallback across all ready agents
-- Data Analyst with CSV/JSON parsing, field profiling, deterministic metrics, and IQR anomaly detection
-- Bounded analysis of up to 500 rows without executing user code, formulas, SQL, or macros
-
-Writer and Supervisor agents remain planned and will be implemented one at a time.
-
-## Important MVP boundary
-
-The Research, Document, and Data Analyst agents use deterministic sandbox tools so they can demonstrate interaction, safety, configuration, and trace behavior without sending data to external AI services. When the Python service is configured, LangGraph orchestrates these tools on the server. Otherwise the same experience falls back safely to the browser sandbox.
-
-The Document Agent currently accepts text-based TXT, Markdown, CSV, and JSON files. PDF and DOCX extraction will be added as a controlled server-side parser increment rather than processing opaque binary files in the browser.
-
-Production model calls, web access, credentials, durable memory, approvals, and privileged tools must run through a secure server-side agent runtime.
+LangGraph is not required for normal workflows. LangMem is not included in the MVP because no governed long-term-memory use case currently requires it.
 
 ## Run locally
 
-### Requirements
+### Frontend only
 
-- Node.js 22.13 or newer
-- npm
+Requirements: Node.js 22.13 or newer and npm.
 
-### Setup
-
-```bash
+```powershell
 git clone https://github.com/snehaguptagi/flowcraft-agent-studio.git
 cd flowcraft-agent-studio
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by the development server, normally [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000). The canvas and browser-safe workflow demonstrations work without environment variables.
 
-No environment variables are required for the browser sandbox.
+### Optional Agent-node service
 
-### Run the LangGraph agent service
+Run this only when you want the Research, Document, or Data Analyst node to use the Python LangGraph runtime instead of its safe browser fallback.
 
 In a second terminal:
 
@@ -75,11 +50,34 @@ python -m venv .venv
 .\.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Copy `.env.example` to `.env.local`, then restart `npm run dev`. The frontend will use `NEXT_PUBLIC_AGENT_API_URL=http://localhost:8000`. LangSmith is optional and configured only in the server environment; LangMem is intentionally deferred until long-term memory is needed and governed.
+Copy the root `.env.example` to `.env.local`, then restart `npm run dev`. The frontend will connect to `http://localhost:8000`.
 
-## Verification
+## Why agents are optional
 
-```bash
+An Agent node is useful when the next action depends on evidence discovered during the run. A standard workflow is the better choice when the steps are already known.
+
+Use normal nodes for prompting, summarization, classification, translation, extraction, formatting, and fixed sequences. Use an Agent node only for bounded multi-step tasks that must choose among approved tools. This keeps most workflows simpler, faster, cheaper, and easier to test.
+
+## Technology
+
+- React 19, TypeScript, vinext, and Vite
+- Custom visual graph canvas
+- Browser local storage for device-local drafts
+- Optional Python, FastAPI, and LangGraph service for Agent nodes
+- Optional LangSmith traces for engineering diagnostics
+- Cloudflare-compatible frontend output
+
+## Documentation
+
+- [Product requirements](./PRD.md)
+- [Product design](./docs/PRODUCT-DESIGN.md)
+- [Workflow-first architecture decision](./docs/architecture/ADR-002-workflow-first-product.md)
+- [Optional Agent runtime decision](./docs/architecture/ADR-001-agent-platform.md)
+- [Agent runtime setup](./services/agent-runtime/README.md)
+
+## Verify
+
+```powershell
 npm run build
 npm run lint
 npm test
@@ -88,36 +86,8 @@ cd services/agent-runtime
 .\.venv\Scripts\python -m pytest
 ```
 
-## Project structure
+## Hosting
 
-```text
-app/
-  page.tsx                  Visual builder, validation and workflow orchestration
-  lib/agent-runtime.ts      API client and safe browser fallback
-  globals.css               Product design system and responsive layout
-  layout.tsx                Document shell and social metadata
-public/
-  og.png                    Social sharing artwork
-tests/
-  rendered-html.test.mjs    Server-rendered smoke test
-.openai/
-  hosting.json              Sites deployment configuration
-PRD.md                      Agentic product source of truth
-docs/architecture/          Accepted technical decisions
-services/agent-runtime/     FastAPI and LangGraph specialist-agent service
-```
+Localhost is the primary development experience. An OpenAI Sites deployment may be used as an optional private demo, but it is not the local runtime and does not host the Python Agent-node service.
 
-## Technology
-
-- React 19 and TypeScript
-- vinext and Vite
-- Custom visual graph canvas
-- Browser local storage for device-local drafts
-- Python, FastAPI, and LangGraph for server-side agent execution
-- Optional LangSmith engineering traces; LangMem-ready memory boundary
-- Cloudflare-compatible deployment output
-- GitHub repository: [snehaguptagi/flowcraft-agent-studio](https://github.com/snehaguptagi/flowcraft-agent-studio)
-
-## Deployed application
-
-[Open Flowcraft](https://flowcraft-ai-workflow-studio.pwc-genai-la-3031.chatgpt.site)
+GitHub repository: [snehaguptagi/flowcraft-agent-studio](https://github.com/snehaguptagi/flowcraft-agent-studio)
