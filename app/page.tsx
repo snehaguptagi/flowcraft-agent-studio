@@ -13,10 +13,13 @@ import {
 import {
   AgentPhase,
   AgentTraceEvent,
+  DATA_AGENT_TOOLS,
   DOCUMENT_AGENT_TOOLS,
   RESEARCH_AGENT_TOOLS,
+  runDataAgent,
   runDocumentAgent,
   runResearchAgent,
+  type DataInput,
   type DocumentInput,
 } from "./lib/agent-runtime";
 
@@ -55,6 +58,9 @@ type NodeConfig = {
   documentName?: string;
   documentMimeType?: DocumentInput["mimeType"];
   documentContent?: string;
+  dataName?: string;
+  dataMimeType?: DataInput["mimeType"];
+  dataContent?: string;
 };
 
 type WorkflowNode = {
@@ -120,6 +126,19 @@ const catalog: CatalogItem[] = [
       documentContent: "Workspace Access Policy\n\nRecovery steps\nUsers can restore access from Workspace settings under Security by selecting Restore access.\n\nOwner escalation\nIf settings are unavailable, a workspace owner can initiate account recovery for the user.\n\nVerification window\nThe recovery verification email must be completed within 30 minutes.",
     },
   },
+  {
+    type: "data-input",
+    name: "Data table",
+    category: "Input",
+    description: "Load a CSV or JSON table",
+    mark: "DT",
+    config: {
+      value: "monthly-sales.csv",
+      dataName: "monthly-sales.csv",
+      dataMimeType: "text/csv",
+      dataContent: "month,units,revenue\nJan,10,120\nFeb,11,135\nMar,9,128\nApr,12,132\nMay,10,130\nJun,44,910",
+    },
+  },
   { type: "url-input", name: "URL input", category: "Input", description: "Fetch content from a URL", mark: "↗", config: { value: "https://docs.example.com" } },
   {
     type: "research-agent",
@@ -165,7 +184,28 @@ const catalog: CatalogItem[] = [
       outputFormat: "Answer, evidence, citations, confidence",
     },
   },
-  { type: "data-agent", name: "Data Analyst", category: "Agent", description: "Analyze tables, metrics and anomalies", mark: "DX", availability: "planned", config: {} },
+  {
+    type: "data-agent",
+    name: "Data Analyst",
+    category: "Agent",
+    description: "Profile tables, calculate metrics and flag anomalies",
+    mark: "DX",
+    availability: "ready",
+    config: {
+      role: "Transparent data analysis specialist",
+      goal: "Analyze the incoming dataset, calculate key metrics, and explain unusual values.",
+      instructions: "Use deterministic calculations. Profile the data before calculating. Explain the anomaly method and never invent missing values.",
+      provider: "OpenAI",
+      model: "GPT-4.1 mini",
+      allowedTools: ["table-reader", "data-profiler", "calculation-tool", "anomaly-detector"],
+      memory: "Working memory for metrics and anomaly evidence in the current run",
+      maxSteps: 4,
+      timeoutSeconds: 90,
+      approvalPolicy: "sensitive",
+      completionCondition: "Return table shape, metrics, missing values, anomalies, and method",
+      outputFormat: "Summary, metrics, anomalies, method, confidence",
+    },
+  },
   { type: "writer-agent", name: "Writer Agent", category: "Agent", description: "Draft evidence-grounded content", mark: "WA", availability: "planned", config: {} },
   { type: "supervisor-agent", name: "Supervisor", category: "Agent", description: "Delegate work to specialist agents", mark: "SA", availability: "planned", config: {} },
   { type: "prompt", name: "Prompt", category: "AI", description: "Build a reusable prompt", mark: "P", config: { prompt: "Answer the customer clearly using only the provided context.", variables: "question, context" } },
@@ -271,7 +311,9 @@ const initialEdges: WorkflowEdge[] = [
 const categoryOrder: NodeCategory[] = ["Input", "Agent", "AI", "Logic", "Output"];
 
 function toolsForAgent(type: string) {
-  return type === "document-agent" ? DOCUMENT_AGENT_TOOLS : RESEARCH_AGENT_TOOLS;
+  if (type === "document-agent") return DOCUMENT_AGENT_TOOLS;
+  if (type === "data-agent") return DATA_AGENT_TOOLS;
+  return RESEARCH_AGENT_TOOLS;
 }
 
 function cloneSnapshot(nodes: WorkflowNode[], edges: WorkflowEdge[]): Snapshot {
@@ -327,7 +369,7 @@ export default function Home() {
   const [pan, setPan] = useState({ x: 28, y: 30 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Research and Document agents are ready with safe browser fallbacks." },
+    { id: "ready", time: "Ready", level: "info", message: "Research, Document, and Data Analyst agents are ready with safe browser fallbacks." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(true);
@@ -577,6 +619,44 @@ export default function Home() {
     event.target.value = "";
   };
 
+  const loadDataFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedNode || selectedNode.type !== "data-input") return;
+    const extension = file.name.split(".").at(-1)?.toLowerCase() ?? "";
+    const mimeByExtension: Record<string, DataInput["mimeType"]> = {
+      csv: "text/csv",
+      json: "application/json",
+    };
+    const mimeType = mimeByExtension[extension];
+    if (!mimeType) {
+      showToast("The Data Analyst currently accepts CSV or JSON tables");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 200_000) {
+      showToast("Choose a dataset smaller than 200 KB for this milestone");
+      event.target.value = "";
+      return;
+    }
+    const content = await file.text();
+    if (!content.trim() || content.length > 200_000) {
+      showToast("The dataset is empty or exceeds the 200,000-character limit");
+      event.target.value = "";
+      return;
+    }
+    updateNode(selectedNode.id, {
+      config: {
+        ...selectedNode.config,
+        value: file.name,
+        dataName: file.name,
+        dataMimeType: mimeType,
+        dataContent: content,
+      },
+    });
+    showToast(`${file.name} loaded`);
+    event.target.value = "";
+  };
+
   const connectTo = useCallback((targetId: string) => {
     if (!connectFrom || connectFrom === targetId) {
       setConnectFrom(null);
@@ -629,6 +709,9 @@ export default function Home() {
       if (node.type === "file-upload" && !node.config.documentContent?.trim()) {
         issues.push(`${node.name} needs document text.`);
       }
+      if (node.type === "data-input" && !node.config.dataContent?.trim()) {
+        issues.push(`${node.name} needs CSV or JSON data.`);
+      }
       if (node.type === "prompt" && !node.config.prompt?.trim()) issues.push(`${node.name} is missing a prompt.`);
       if (node.type === "llm" && !node.config.model?.trim()) issues.push(`${node.name} is missing a model.`);
       if (node.category === "Agent") {
@@ -659,6 +742,18 @@ export default function Home() {
             .filter((candidate) => candidate?.type === "file-upload");
           if (!documentInputs.some((candidate) => candidate?.config.documentContent?.trim())) {
             issues.push(`${node.name} needs a connected text document.`);
+          }
+        }
+        if (node.type === "data-agent") {
+          DATA_AGENT_TOOLS.forEach((tool) => {
+            if (!node.config.allowedTools?.includes(tool.id)) issues.push(`${node.name} requires ${tool.name}.`);
+          });
+          const dataInputs = edges
+            .filter((edge) => edge.to === node.id)
+            .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
+            .filter((candidate) => candidate?.type === "data-input");
+          if (!dataInputs.some((candidate) => candidate?.config.dataContent?.trim())) {
+            issues.push(`${node.name} needs a connected CSV or JSON table.`);
           }
         }
       }
@@ -694,6 +789,8 @@ export default function Home() {
         return node.config.value || "Input received";
       case "file-upload":
         return node.config.documentContent || "Document text required";
+      case "data-input":
+        return node.config.dataContent || "Dataset required";
       case "rag":
         return "Matched 3 help-center passages: Workspace access, owner recovery, and security verification.";
       case "prompt":
@@ -857,6 +954,66 @@ export default function Home() {
             approvalPolicy: node.config.approvalPolicy ?? "sensitive",
             completionCondition: node.config.completionCondition ?? "Return a cited answer",
             outputFormat: node.config.outputFormat ?? "Answer with document citations",
+          },
+          {
+            onPhase: (phase) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id ? { ...candidate, status: phaseToNodeStatus(phase) } : candidate
+              )));
+            },
+            onTrace: (event) => {
+              setNodes((current) => current.map((candidate) => (
+                candidate.id === id
+                  ? { ...candidate, agentTrace: [...(candidate.agentTrace ?? []), event] }
+                  : candidate
+              )));
+              addLog({
+                level: event.kind === "error" ? "error" : event.kind === "output" ? "success" : "info",
+                node: node.name,
+                message: `${event.title} · ${event.summary.slice(0, 100)}`,
+              });
+            },
+          },
+        );
+        output = result.output;
+        finalStatus = result.status;
+        addLog({
+          level: result.fallbackReason ? "info" : "success",
+          node: node.name,
+          message: result.fallbackReason
+            ? "Agent service unavailable; completed with the safe browser sandbox"
+            : result.runtime === "langgraph"
+              ? "Executed by the LangGraph agent service"
+              : "Executed by the browser sandbox",
+        });
+      } else if (node.type === "data-agent") {
+        setConsoleTab("trace");
+        const datasets = inputNodes
+          .filter((candidate) => candidate.type === "data-input" && candidate.config.dataContent?.trim())
+          .map<DataInput>((candidate) => ({
+            id: candidate.id,
+            name: candidate.config.dataName ?? candidate.config.value ?? "dataset.csv",
+            mimeType: candidate.config.dataMimeType ?? "text/csv",
+            content: candidate.config.dataContent ?? "",
+          }));
+        const result = await runDataAgent(
+          {
+            goal: node.config.goal ?? "",
+            role: node.config.role ?? "",
+            instructions: node.config.instructions ?? "",
+            input: inputNodes
+              .filter((candidate) => candidate.type !== "data-input")
+              .map((candidate) => outputs.get(candidate.id) ?? "")
+              .filter(Boolean)
+              .join("\n\n"),
+            datasets,
+            allowedTools: node.config.allowedTools ?? [],
+            memory: node.config.memory ?? "",
+            maxSteps: node.config.maxSteps ?? 1,
+            timeoutSeconds: node.config.timeoutSeconds ?? 60,
+            approvalPolicy: node.config.approvalPolicy ?? "sensitive",
+            completionCondition: node.config.completionCondition ?? "Return metrics and anomalies",
+            outputFormat: node.config.outputFormat ?? "Summary, metrics, anomalies",
           },
           {
             onPhase: (phase) => {
@@ -1162,7 +1319,7 @@ export default function Home() {
                         <><span>{node.config.model}</span><span>{node.config.temperature} temp</span></>
                       ) : node.type === "prompt" ? (
                         <p>{node.config.prompt}</p>
-                      ) : node.type === "text-input" ? (
+                      ) : ["text-input", "file-upload", "data-input"].includes(node.type) ? (
                         <p>{node.config.value}</p>
                       ) : node.category === "Agent" ? (
                         <p>{node.config.goal}</p>
@@ -1355,7 +1512,40 @@ export default function Home() {
                   </div>
                 )}
 
-                {selectedNode.config.value !== undefined && selectedNode.type !== "file-upload" && (
+                {selectedNode.type === "data-input" && (
+                  <div className="form-section">
+                    <div className="form-section-title"><span>Tabular data</span><span>Agent 3</span></div>
+                    <label className="field-label">
+                      Choose a dataset
+                      <input
+                        type="file"
+                        accept=".csv,.json,text/csv,application/json"
+                        onChange={loadDataFile}
+                      />
+                      <small className="field-help">CSV or JSON array of objects · maximum 200 KB and 500 analyzed rows.</small>
+                    </label>
+                    <label className="field-label">
+                      Dataset name
+                      <input
+                        value={selectedNode.config.dataName ?? ""}
+                        onChange={(event) => {
+                          updateConfig("dataName", event.target.value);
+                          updateConfig("value", event.target.value);
+                        }}
+                      />
+                    </label>
+                    <label className="field-label">
+                      Table content
+                      <textarea
+                        rows={10}
+                        value={selectedNode.config.dataContent ?? ""}
+                        onChange={(event) => updateConfig("dataContent", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {selectedNode.config.value !== undefined && !["file-upload", "data-input"].includes(selectedNode.type) && (
                   <div className="form-section">
                     <div className="form-section-title"><span>Value</span><span>⌃</span></div>
                     <label className="field-label">Input value<textarea rows={4} value={selectedNode.config.value ?? ""} onChange={(event) => updateConfig("value", event.target.value)} /></label>

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.tools.data import REQUIRED_DATA_TOOL_IDS
 from app.tools.document import REQUIRED_DOCUMENT_TOOL_IDS
 from app.tools.research import REQUIRED_RESEARCH_TOOL_IDS
 
@@ -14,7 +15,11 @@ def test_health_and_agent_catalog() -> None:
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
     assert agents.status_code == 200
-    assert [agent["id"] for agent in agents.json()] == ["research-agent", "document-agent"]
+    assert [agent["id"] for agent in agents.json()] == [
+        "research-agent",
+        "document-agent",
+        "data-agent",
+    ]
 
 
 def test_research_run_endpoint() -> None:
@@ -64,3 +69,31 @@ def test_document_run_endpoint() -> None:
     assert body["status"] == "completed"
     assert body["documentCount"] == 1
     assert body["citations"][0]["documentName"] == "policy.txt"
+
+
+def test_data_run_endpoint() -> None:
+    response = client.post(
+        "/v1/agents/data/runs",
+        json={
+            "goal": "Analyze sales",
+            "instructions": "Calculate metrics and flag outliers.",
+            "input": "What changed?",
+            "datasets": [
+                {
+                    "id": "sales-1",
+                    "name": "sales.csv",
+                    "mimeType": "text/csv",
+                    "content": "month,revenue\nJan,100\nFeb,110\nMar,105\nApr,500",
+                }
+            ],
+            "allowedTools": sorted(REQUIRED_DATA_TOOL_IDS),
+            "maxSteps": 4,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["runtime"] == "langgraph"
+    assert body["status"] == "completed"
+    assert body["rowCount"] == 4
+    assert body["metrics"]

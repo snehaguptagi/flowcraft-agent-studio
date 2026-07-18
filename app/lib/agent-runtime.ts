@@ -60,6 +60,17 @@ export type DocumentAgentConfig = ResearchAgentConfig & {
   documents: DocumentInput[];
 };
 
+export type DataInput = {
+  id: string;
+  name: string;
+  mimeType: "text/csv" | "application/json";
+  content: string;
+};
+
+export type DataAgentConfig = ResearchAgentConfig & {
+  datasets: DataInput[];
+};
+
 export type AgentRunResult = {
   status: "completed" | "failed" | "limit-reached";
   output: string;
@@ -118,6 +129,33 @@ export const DOCUMENT_AGENT_TOOLS: ToolDefinition[] = [
     id: "citation-collector",
     name: "Citation collector",
     description: "Select relevant evidence and attach document citations",
+    risk: "low",
+  },
+];
+
+export const DATA_AGENT_TOOLS: ToolDefinition[] = [
+  {
+    id: "table-reader",
+    name: "Table reader",
+    description: "Parse approved CSV or JSON tables for the current run",
+    risk: "low",
+  },
+  {
+    id: "data-profiler",
+    name: "Data profiler",
+    description: "Identify columns, row counts, missing values, and numeric fields",
+    risk: "low",
+  },
+  {
+    id: "calculation-tool",
+    name: "Calculation tool",
+    description: "Calculate deterministic summary metrics for numeric columns",
+    risk: "low",
+  },
+  {
+    id: "anomaly-detector",
+    name: "Anomaly detector",
+    description: "Flag numeric outliers using a transparent IQR rule",
     risk: "low",
   },
 ];
@@ -461,6 +499,225 @@ export async function runDocumentAgentSandbox(
   return { status: "completed", output, trace, stepsUsed: 4, runtime: "browser-sandbox" };
 }
 
+type SandboxRow = Record<string, string | number | null>;
+
+function splitCsvLine(line: string): string[] {
+  const values: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      values.push(current.trim());
+      current = "";
+    } else {
+      current += character;
+    }
+  }
+  values.push(current.trim());
+  return values;
+}
+
+function parseSandboxDataset(dataset: DataInput): SandboxRow[] {
+  if (dataset.mimeType === "application/json") {
+    const parsed: unknown = JSON.parse(dataset.content);
+    if (!Array.isArray(parsed) || !parsed.every((row) => row && typeof row === "object" && !Array.isArray(row))) {
+      throw new Error("JSON data must be an array of objects");
+    }
+    return parsed.slice(0, 500) as SandboxRow[];
+  }
+  const lines = dataset.content.replace(/\r\n?/g, "\n").split("\n").filter((line) => line.trim());
+  const headers = splitCsvLine(lines[0] ?? "");
+  if (!headers.length || headers.some((header) => !header)) throw new Error("CSV requires a header row");
+  return lines.slice(1, 501).map((line) => {
+    const values = splitCsvLine(line);
+    return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""]));
+  });
+}
+
+function sandboxNumber(value: string | number | null | undefined): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const numeric = Number(value.replace(/[,$%]/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function sandboxPercentile(values: number[], fraction: number): number {
+  const ordered = [...values].sort((left, right) => left - right);
+  const position = (ordered.length - 1) * fraction;
+  const lower = Math.floor(position);
+  const upper = Math.min(lower + 1, ordered.length - 1);
+  const weight = position - lower;
+  return ordered[lower] * (1 - weight) + ordered[upper] * weight;
+}
+
+export async function runDataAgentSandbox(
+  config: DataAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  const trace: AgentTraceEvent[] = [];
+  const emit = (event: AgentTraceEvent) => {
+    trace.push(event);
+    hooks.onTrace?.(event);
+  };
+  const missingTool = DATA_AGENT_TOOLS.find((tool) => !config.allowedTools.includes(tool.id));
+  if (missingTool || !config.datasets.length) {
+    hooks.onPhase?.("failed");
+    emit(traceEvent(
+      0,
+      "error",
+      missingTool ? "Required tool unavailable" : "Dataset required",
+      missingTool
+        ? `The Data Analyst cannot continue because ${missingTool.id} is not allowed.`
+        : "Attach at least one CSV or JSON dataset before running.",
+    ));
+    return {
+      status: "failed",
+      output: "Data analysis stopped because its required input or permission was unavailable.",
+      trace,
+      stepsUsed: 0,
+      runtime: "browser-sandbox",
+    };
+  }
+
+  let rows: SandboxRow[];
+  try {
+    rows = config.datasets.flatMap(parseSandboxDataset).slice(0, 500);
+    if (!rows.length) throw new Error("The dataset has no rows");
+  } catch (error) {
+    hooks.onPhase?.("failed");
+    emit(traceEvent(1, "error", "Table reader failed", error instanceof Error ? error.message : "Invalid table"));
+    return {
+      status: "failed",
+      output: "Data analysis stopped because the supplied dataset could not be parsed.",
+      trace,
+      stepsUsed: 1,
+      runtime: "browser-sandbox",
+    };
+  }
+
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const numericColumns = columns.filter((column) => {
+    const present = rows.map((row) => row[column]).filter((value) => value !== "" && value != null);
+    return present.length > 0 && present.filter((value) => sandboxNumber(value) !== null).length / present.length >= 0.8;
+  });
+  const metrics = numericColumns.slice(0, 6).flatMap((column) => {
+    const values = rows.map((row) => sandboxNumber(row[column])).filter((value): value is number => value !== null);
+    if (!values.length) return [];
+    return [
+      `${column} sum: ${values.reduce((total, value) => total + value, 0).toFixed(2)}`,
+      `${column} average: ${(values.reduce((total, value) => total + value, 0) / values.length).toFixed(2)}`,
+      `${column} minimum: ${Math.min(...values).toFixed(2)}`,
+      `${column} maximum: ${Math.max(...values).toFixed(2)}`,
+    ];
+  });
+  const anomalies = numericColumns.slice(0, 6).flatMap((column) => {
+    const values = rows.map((row) => sandboxNumber(row[column])).filter((value): value is number => value !== null);
+    if (values.length < 4) return [];
+    const firstQuartile = sandboxPercentile(values, 0.25);
+    const thirdQuartile = sandboxPercentile(values, 0.75);
+    const spread = thirdQuartile - firstQuartile;
+    const lower = firstQuartile - 1.5 * spread;
+    const upper = thirdQuartile + 1.5 * spread;
+    return rows.flatMap((row, index) => {
+      const value = sandboxNumber(row[column]);
+      return value !== null && (value < lower || value > upper)
+        ? [`Row ${index + 1}, ${column}=${value}: outside IQR range ${lower.toFixed(2)} to ${upper.toFixed(2)}`]
+        : [];
+    });
+  }).slice(0, 20);
+  const missingCount = columns.reduce(
+    (total, column) => total + rows.filter((row) => row[column] === "" || row[column] == null).length,
+    0,
+  );
+  const steps = [
+    {
+      toolId: "table-reader",
+      plan: "Parse the approved tabular data and enforce the local row limit.",
+      action: `Parse ${config.datasets.length} approved dataset(s).`,
+      observation: `Parsed ${rows.length} row(s).`,
+      latency: 180,
+    },
+    {
+      toolId: "data-profiler",
+      plan: "Profile columns, missing values, and numeric fields before calculating.",
+      action: "Inspect table shape, field types, and completeness.",
+      observation: `Found ${columns.length} columns, ${numericColumns.length} numeric fields, and ${missingCount} missing values.`,
+      latency: 210,
+    },
+    {
+      toolId: "calculation-tool",
+      plan: "Calculate transparent summary metrics for each numeric field.",
+      action: "Compute sum, average, minimum, and maximum values.",
+      observation: `Calculated ${metrics.length} deterministic metrics.`,
+      latency: 220,
+    },
+    {
+      toolId: "anomaly-detector",
+      plan: "Apply a transparent IQR rule to flag unusual numeric values.",
+      action: "Check numeric values against per-column IQR bounds.",
+      observation: `Flagged ${anomalies.length} numeric outlier(s).`,
+      latency: 230,
+    },
+  ];
+  const allowedStepCount = Math.max(1, Math.min(config.maxSteps, steps.length));
+  for (let index = 0; index < allowedStepCount; index += 1) {
+    const step = steps[index];
+    const stepNumber = index + 1;
+    const tool = DATA_AGENT_TOOLS.find((candidate) => candidate.id === step.toolId)!;
+    hooks.onPhase?.("planning");
+    emit(traceEvent(stepNumber, "plan", `Plan step ${stepNumber}`, step.plan));
+    await wait(90);
+    hooks.onPhase?.("acting");
+    emit(traceEvent(stepNumber, "action", `Use ${tool.name}`, step.action, { toolId: tool.id, risk: tool.risk }));
+    await wait(step.latency);
+    hooks.onPhase?.("observing");
+    emit(traceEvent(stepNumber, "observation", `${tool.name} result`, step.observation, {
+      toolId: tool.id,
+      risk: tool.risk,
+      latency: step.latency,
+    }));
+    await wait(80);
+  }
+  if (allowedStepCount < steps.length) {
+    hooks.onPhase?.("limit-reached");
+    emit(traceEvent(allowedStepCount, "decision", "Step limit reached", `The agent stopped after ${allowedStepCount} data-processing steps.`));
+    return {
+      status: "limit-reached",
+      output: `Partial data analysis. The configured ${config.maxSteps}-step limit was reached before the report could be assembled.`,
+      trace,
+      stepsUsed: allowedStepCount,
+      runtime: "browser-sandbox",
+    };
+  }
+  const output = [
+    "Data analysis",
+    `Analyzed ${rows.length} rows across ${columns.length} columns. Found ${missingCount} missing values and ${anomalies.length} numeric outliers.`,
+    "",
+    "Metrics",
+    ...(metrics.length ? metrics.map((metric) => `• ${metric}`) : ["• No numeric metrics were available."]),
+    "",
+    "Anomalies",
+    ...(anomalies.length ? anomalies.map((anomaly) => `• ${anomaly}`) : ["• No IQR outliers detected."]),
+    "",
+    "Method",
+    "Metrics are deterministic. Outliers use the 1.5 × IQR rule.",
+    "",
+    "Confidence: High",
+  ].join("\n");
+  emit(traceEvent(4, "decision", "Data analysis complete", `The report satisfies: ${config.completionCondition}`));
+  emit(traceEvent(4, "output", "Final data result", output));
+  hooks.onPhase?.("completed");
+  return { status: "completed", output, trace, stepsUsed: 4, runtime: "browser-sandbox" };
+}
+
 function phaseForEvent(event: AgentTraceEvent): AgentPhase {
   if (event.kind === "action") return "acting";
   if (event.kind === "observation") return "observing";
@@ -483,7 +740,7 @@ function isAgentRunResult(value: unknown): value is AgentRunResult {
 
 async function runServerAgent(
   endpoint: string,
-  payload: ResearchAgentConfig | DocumentAgentConfig,
+  payload: ResearchAgentConfig | DocumentAgentConfig | DataAgentConfig,
   hooks: AgentRuntimeHooks,
   fallback: () => Promise<AgentRunResult>,
 ): Promise<AgentRunResult> {
@@ -547,5 +804,17 @@ export async function runDocumentAgent(
     config,
     hooks,
     () => runDocumentAgentSandbox(config, hooks),
+  );
+}
+
+export async function runDataAgent(
+  config: DataAgentConfig,
+  hooks: AgentRuntimeHooks = {},
+): Promise<AgentRunResult> {
+  return runServerAgent(
+    "/v1/agents/data/runs",
+    config,
+    hooks,
+    () => runDataAgentSandbox(config, hooks),
   );
 }

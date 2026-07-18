@@ -5,10 +5,13 @@ from uuid import uuid4
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.agents.data import run_data_agent
 from app.agents.document import run_document_agent
 from app.agents.research import run_research_agent
 from app.models import (
     AgentCatalogItem,
+    DataRunRequest,
+    DataRunResult,
     DocumentRunRequest,
     DocumentRunResult,
     HealthResponse,
@@ -16,6 +19,7 @@ from app.models import (
     ResearchRunResult,
     TraceEvent,
 )
+from app.tools.data import DATA_TOOLS
 from app.tools.document import DOCUMENT_TOOLS
 from app.tools.research import RESEARCH_TOOLS
 
@@ -31,7 +35,7 @@ def _cors_origins() -> list[str]:
 
 app = FastAPI(
     title="Flowcraft Agent Runtime",
-    version="0.2.0",
+    version="0.3.0",
     description="Typed LangGraph runtime for Flowcraft specialist agents.",
 )
 app.add_middleware(
@@ -66,6 +70,14 @@ def list_agents() -> list[AgentCatalogItem]:
             status="ready",
             runtime="langgraph",
             tools=DOCUMENT_TOOLS,
+        ),
+        AgentCatalogItem(
+            id="data-agent",
+            name="Data Analyst",
+            description="Profiles approved CSV or JSON data and returns metrics and anomalies.",
+            status="ready",
+            runtime="langgraph",
+            tools=DATA_TOOLS,
         ),
     ]
 
@@ -115,5 +127,32 @@ async def run_document(request: DocumentRunRequest) -> DocumentRunResult:
             ],
             stepsUsed=0,
             documentCount=len(request.documents),
+            confidence="not-assessed",
+        )
+
+
+@app.post("/v1/agents/data/runs", response_model=DataRunResult)
+async def run_data(request: DataRunRequest) -> DataRunResult:
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(run_data_agent, request), timeout=request.timeoutSeconds
+        )
+    except TimeoutError:
+        return DataRunResult(
+            runId=f"run-{uuid4().hex}",
+            status="failed",
+            output="Data analysis stopped because the configured timeout was reached.",
+            trace=[
+                TraceEvent(
+                    step=0,
+                    kind="error",
+                    title="Run timed out",
+                    summary=f"The agent exceeded the {request.timeoutSeconds}-second timeout.",
+                )
+            ],
+            stepsUsed=0,
+            datasetCount=len(request.datasets),
+            rowCount=0,
+            columnCount=0,
             confidence="not-assessed",
         )

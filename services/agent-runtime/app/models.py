@@ -57,6 +57,26 @@ class DocumentCitation(BaseModel):
     label: str
 
 
+class DataInput(BaseModel):
+    id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=500)
+    mimeType: Literal["text/csv", "application/json"]
+    content: str = Field(min_length=1, max_length=200_000)
+
+
+class DataMetric(BaseModel):
+    column: str
+    operation: Literal["sum", "average", "minimum", "maximum"]
+    value: float
+
+
+class DataAnomaly(BaseModel):
+    rowNumber: int = Field(ge=1)
+    column: str
+    value: float
+    reason: str
+
+
 class ResearchRunRequest(BaseModel):
     goal: str = Field(min_length=1, max_length=2_000)
     role: str = Field(default="Research specialist", max_length=500)
@@ -109,6 +129,36 @@ class DocumentRunResult(BaseModel):
     confidence: Literal["high", "medium", "low", "not-assessed"] = "not-assessed"
 
 
+class DataRunRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=2_000)
+    role: str = Field(default="Data analyst", max_length=500)
+    instructions: str = Field(min_length=1, max_length=8_000)
+    input: str = Field(default="", max_length=20_000)
+    datasets: list[DataInput] = Field(min_length=1, max_length=3)
+    allowedTools: list[str] = Field(default_factory=list)
+    memory: str = Field(default="", max_length=10_000)
+    maxSteps: int = Field(default=4, ge=1, le=12)
+    timeoutSeconds: int = Field(default=90, ge=1, le=600)
+    approvalPolicy: Literal["never", "sensitive", "always"] = "sensitive"
+    completionCondition: str = Field(default="Return metrics and anomalies", max_length=2_000)
+    outputFormat: str = Field(default="Summary, metrics, anomalies", max_length=1_000)
+
+
+class DataRunResult(BaseModel):
+    runId: str
+    runtime: Literal["langgraph"] = "langgraph"
+    status: AgentStatus
+    output: str
+    trace: list[TraceEvent]
+    stepsUsed: int = Field(ge=0)
+    datasetCount: int = Field(ge=0)
+    rowCount: int = Field(ge=0)
+    columnCount: int = Field(ge=0)
+    metrics: list[DataMetric] = Field(default_factory=list)
+    anomalies: list[DataAnomaly] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low", "not-assessed"] = "not-assessed"
+
+
 class AgentCatalogItem(BaseModel):
     id: str
     name: str
@@ -121,5 +171,5 @@ class AgentCatalogItem(BaseModel):
 class HealthResponse(BaseModel):
     status: Literal["ok"] = "ok"
     service: str = "flowcraft-agent-runtime"
-    version: str = "0.2.0"
+    version: str = "0.3.0"
     langsmithTracing: bool

@@ -1,6 +1,6 @@
 # Flowcraft Agent Studio — Product Requirements Document
 
-**Version:** 2.2
+**Version:** 2.3
 
 **Status:** Approved for incremental implementation
 
@@ -210,6 +210,12 @@ Build the reusable Agent node, runtime state machine, step trace, tool permissio
 
 **Tools:** spreadsheet reader, query/calculation tool, chart or table output.
 
+**Initial inputs:** one to three user-approved CSV files or JSON arrays of objects, limited to 500 analyzed rows per run.
+
+**Completion condition:** the table shape, numeric metrics, missing values, and transparent anomaly review are complete, or the step limit is reached.
+
+**Output:** table summary, deterministic metrics, IQR anomalies, calculation method, confidence, and full trace.
+
 ### Agent 4 — Writer Agent
 
 **Purpose:** Draft or revise content using an approved brief, evidence, tone, and output format.
@@ -233,6 +239,7 @@ The first agentic MVP includes:
 - Shared Agent node configuration.
 - Research Agent as the first specialist agent.
 - Document Agent as the second specialist agent.
+- Data Analyst as the third specialist agent.
 - Tool permission selection.
 - Working-memory configuration.
 - Step, timeout, and approval limits.
@@ -251,6 +258,7 @@ The first agentic MVP includes:
 - Production credential storage.
 - Persistent semantic memory across users or organizations.
 - Binary PDF or DOCX extraction in the browser; those formats require a controlled server parser.
+- Arbitrary code, SQL, spreadsheet formulas, macros, or unrestricted Python execution for data analysis.
 - Multi-user collaboration.
 - Fully autonomous supervisor behavior before specialist agents are validated.
 
@@ -439,6 +447,8 @@ The first server-backed Research Agent is deliberately deterministic: it runs ap
 
 The second server-backed Document Agent follows the same pattern. It accepts approved text documents, preserves document identity, extracts sections, ranks evidence, and returns explicit citations without a model key. Document knowledge remains run-scoped and separate from LangMem.
 
+The third server-backed Data Analyst parses bounded CSV or JSON tables, profiles fields, calculates deterministic summaries, and flags numeric outliers with a visible 1.5 × IQR rule. It does not execute user code, formulas, SQL, or macros.
+
 The browser sandbox remains a safe fallback whenever the local agent service is not configured or reachable. A configured server run must identify itself as `langgraph`; a fallback run must identify itself as `browser-sandbox`.
 
 ### Memory layers
@@ -496,7 +506,23 @@ Agent 2 is complete when:
 - Workflow export and import preserve document text and Document Agent configuration without secrets.
 - Backend tests, frontend build, lint, and smoke tests pass.
 
-## 19. Success measures
+## 19. Data Analyst acceptance criteria
+
+Agent 3 is complete when:
+
+- A Data Analyst can be added from the Agent library.
+- A user can load or paste a CSV file or JSON array into a Data Table input node.
+- The Data Analyst requires a connected table and all four approved tools.
+- Its goal, instructions, model, tools, memory, limits, and approval policy are editable.
+- A valid run emits plan, action, observation, decision, and output trace events.
+- The result reports row and column counts, missing values, and deterministic numeric metrics.
+- Numeric anomalies include a row number, field, value, and transparent IQR explanation.
+- Invalid tables, missing permissions, and step-limit paths are tested.
+- A versioned FastAPI endpoint runs the Data Analyst through LangGraph.
+- The frontend uses the server runtime when configured and safely falls back to the browser sandbox.
+- Backend tests, frontend build, lint, and smoke tests pass.
+
+## 20. Success measures
 
 - At least 80% of test users can add and run each ready specialist agent without assistance.
 - Users can correctly explain what the agent did after reading the trace.
@@ -504,7 +530,7 @@ Agent 2 is complete when:
 - Every tool call is attributable to an agent, step, and permission grant.
 - Validation errors are resolved without external documentation in at least 90% of tests.
 
-## 20. Delivery sequence
+## 21. Delivery sequence
 
 1. Commit this PRD as the product contract.
 2. Connect the repository to a private GitHub remote.
@@ -515,4 +541,6 @@ Agent 2 is complete when:
 7. Review Agent 1 against its acceptance criteria.
 8. Implement and validate the Document Agent on the shared runtime.
 9. Commit, push, and deploy Agent 2.
-10. Begin the Data Analyst Agent only after Agent 2 is accepted.
+10. Implement and validate the Data Analyst on the shared runtime.
+11. Commit, push, and deploy Agent 3.
+12. Begin the Writer Agent only after Agent 3 is accepted.

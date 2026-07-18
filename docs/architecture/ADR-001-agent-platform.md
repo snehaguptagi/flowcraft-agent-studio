@@ -47,6 +47,12 @@ The Document Agent reuses the same FastAPI, LangGraph, trace, checkpointer, limi
 
 The first increment accepts run-scoped TXT, Markdown, CSV, and JSON text up to 100,000 characters per document. It does not persist uploaded content. PDF and DOCX require a controlled server-side binary parser and are intentionally deferred. Document content and citations remain part of the retrieval/provenance boundary and are not written to LangMem.
 
+## Agent 3 implementation
+
+The Data Analyst adds a bounded tabular-data path to the shared runtime. It accepts CSV or JSON arrays, analyzes at most 500 rows, profiles numeric fields and missing values, calculates sum/average/minimum/maximum deterministically, and identifies outliers with the visible 1.5 × IQR rule.
+
+This increment intentionally does not execute arbitrary Python, SQL, formulas, or spreadsheet macros. Data is run-scoped and is not written to LangMem. Later analytical capabilities should be introduced as narrow typed tools with resource, permission, and evaluation boundaries.
+
 ## Consequences
 
 ### Benefits

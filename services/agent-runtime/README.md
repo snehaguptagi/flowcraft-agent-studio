@@ -1,6 +1,6 @@
 # Flowcraft agent runtime
 
-This service runs Flowcraft specialist agents on the server. Agent 1 is a deterministic Research Agent and Agent 2 is a cited Document Agent. Both are orchestrated by LangGraph, so their graphs, permissions, limits, traces, and APIs can be tested without a model key or unrestricted external access.
+This service runs Flowcraft specialist agents on the server. Agent 1 is a deterministic Research Agent, Agent 2 is a cited Document Agent, and Agent 3 is a bounded Data Analyst. All are orchestrated by LangGraph, so their graphs, permissions, limits, traces, and APIs can be tested without a model key or unrestricted external access.
 
 ## Start locally
 
@@ -20,6 +20,7 @@ The API is then available at `http://localhost:8000`. Set `NEXT_PUBLIC_AGENT_API
 - `GET /v1/agents`
 - `POST /v1/agents/research/runs`
 - `POST /v1/agents/document/runs`
+- `POST /v1/agents/data/runs`
 - `GET /docs` for the generated OpenAPI explorer
 
 ## LangSmith
@@ -31,6 +32,8 @@ LangGraph automatically emits engineering traces when the server has `LANGSMITH_
 The LangGraph checkpointer owns short-term run/thread state. `app/memory.py` defines the application boundary for future persisted memory. LangMem will be added only for evaluated long-term memory use cases; document retrieval remains a separate indexed knowledge system.
 
 The Document Agent accepts run-scoped TXT, Markdown, CSV, and JSON text. It preserves document and section provenance in every citation and does not write document content to long-term memory.
+
+The Data Analyst accepts CSV or JSON arrays, processes at most 500 rows, calculates deterministic metrics, and flags numeric outliers with the 1.5 × IQR rule. It never executes user-provided code, formulas, SQL, or macros.
 
 ## Verify
 
