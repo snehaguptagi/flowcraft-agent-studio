@@ -272,6 +272,9 @@ The MVP is accepted when:
 - The default canvas shows Input → Prompt → Model → Output without an Agent node.
 - A visible Load demo control restores a complete runnable workflow.
 - A user can connect two compatible nodes by dragging from the source's right port to the target's left port.
+- A live connection preview follows the pointer while a new edge is dragged.
+- A user can select and delete an existing connection.
+- Test workflow validates the graph and executes connected steps in dependency order.
 - A user can add, configure, connect, run, save, export, and import workflows.
 - Logs, outputs, and errors are inspectable.
 - The frontend runs locally without the Python service.

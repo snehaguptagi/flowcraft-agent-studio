@@ -107,7 +107,7 @@ type CatalogItem = {
   availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v4";
+const STORAGE_KEY = "flowcraft-ai-workflow-v5";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 
@@ -229,10 +229,10 @@ const initialNodes: WorkflowNode[] = [
     id: "input-1",
     type: "text-input",
     category: "Input",
-    name: "Customer question",
-    description: "Collect a text value",
-    x: 58,
-    y: 220,
+    name: "When test workflow runs",
+    description: "Start with sample customer input",
+    x: 72,
+    y: 184,
     status: "idle",
     config: { value: "How can I reset a locked workspace?" },
   },
@@ -240,10 +240,10 @@ const initialNodes: WorkflowNode[] = [
     id: "prompt-1",
     type: "prompt",
     category: "AI",
-    name: "Support prompt",
+    name: "Build support prompt",
     description: "Build a reusable prompt",
-    x: 342,
-    y: 220,
+    x: 360,
+    y: 184,
     status: "idle",
     config: {
       prompt: "Answer clearly using only the retrieved help-center context. Include the exact next step.",
@@ -254,10 +254,10 @@ const initialNodes: WorkflowNode[] = [
     id: "llm-1",
     type: "llm",
     category: "AI",
-    name: "Draft answer",
+    name: "Generate answer",
     description: "Generate with a language model",
-    x: 626,
-    y: 220,
+    x: 648,
+    y: 184,
     status: "idle",
     config: { provider: "OpenAI", model: "GPT-4.1 mini", temperature: 0.3, maxTokens: 900 },
   },
@@ -265,10 +265,10 @@ const initialNodes: WorkflowNode[] = [
     id: "output-1",
     type: "chat-output",
     category: "Output",
-    name: "Reply to customer",
+    name: "Return response",
     description: "Display a chat response",
-    x: 910,
-    y: 220,
+    x: 936,
+    y: 184,
     status: "idle",
     config: { format: "Chat" },
   },
@@ -353,9 +353,11 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string>("prompt-1");
   const [workflowName, setWorkflowName] = useState("Demo · Customer support reply");
   const [search, setSearch] = useState("");
-  const [zoom, setZoom] = useState(0.84);
-  const [pan, setPan] = useState({ x: 28, y: 30 });
+  const [zoom, setZoom] = useState(0.9);
+  const [pan, setPan] = useState({ x: 28, y: 54 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
+  const [connectionPointer, setConnectionPointer] = useState<{ x: number; y: number } | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
     { id: "ready", time: "Ready", level: "info", message: "Demo workflow ready: question → prompt → model → reply." },
   ]);
@@ -386,6 +388,7 @@ export default function Home() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const hydratedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionDragRef = useRef<{ from: string; startX: number; startY: number } | null>(null);
 
   const selectedNode = nodes.find((node) => node.id === selectedId) ?? null;
 
@@ -531,9 +534,19 @@ export default function Home() {
     const nextEdges = edges.filter((edge) => edge.from !== id && edge.to !== id);
     commit(nextNodes, nextEdges);
     setSelectedId(nextNodes[0]?.id ?? "");
+    setSelectedEdgeId(null);
     setConnectFrom((current) => (current === id ? null : current));
     showToast("Node removed");
   }, [commit, edges, isRunning, nodes, showToast]);
+
+  const removeEdge = useCallback((id: string) => {
+    if (isRunning) return;
+    setUndoStack((current) => [...current.slice(-29), cloneSnapshot(nodes, edges)]);
+    setRedoStack([]);
+    setEdges((current) => current.filter((edge) => edge.id !== id));
+    setSelectedEdgeId(null);
+    showToast("Connection removed");
+  }, [edges, isRunning, nodes, showToast]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -544,6 +557,11 @@ export default function Home() {
         showToast("Workflow saved");
       }
       if (event.key === "Escape") setConnectFrom(null);
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedEdgeId) {
+        event.preventDefault();
+        removeEdge(selectedEdgeId);
+        return;
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedId) {
         event.preventDefault();
         removeNode(selectedId);
@@ -551,7 +569,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [removeNode, selectedId, showToast]);
+  }, [removeEdge, removeNode, selectedEdgeId, selectedId, showToast]);
 
   const updateNode = useCallback((id: string, patch: Partial<WorkflowNode>) => {
     setNodes((current) => current.map((node) => (node.id === id ? { ...node, ...patch } : node)));
@@ -670,6 +688,7 @@ export default function Home() {
     }
     commit(nodes, [...edges, { id: `edge-${Date.now()}`, from: sourceId, to: targetId }]);
     setSelectedId(targetId);
+    setSelectedEdgeId(null);
     showToast(`${source.name} connected to ${target.name}`);
   }, [commit, edges, nodes, showToast]);
 
@@ -678,6 +697,49 @@ export default function Home() {
     connectNodes(connectFrom, targetId);
     setConnectFrom(null);
   }, [connectFrom, connectNodes]);
+
+  useEffect(() => {
+    const toWorldPoint = (clientX: number, clientY: number) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      return {
+        x: (clientX - rect.left - pan.x) / zoom,
+        y: (clientY - rect.top - pan.y) / zoom,
+      };
+    };
+
+    const handleConnectionMove = (event: PointerEvent) => {
+      if (!connectionDragRef.current) return;
+      const point = toWorldPoint(event.clientX, event.clientY);
+      if (point) setConnectionPointer(point);
+    };
+
+    const handleConnectionUp = (event: PointerEvent) => {
+      const drag = connectionDragRef.current;
+      if (!drag) return;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-input-node]");
+      const targetId = target?.dataset.inputNode;
+      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 6;
+
+      if (targetId) {
+        connectNodes(drag.from, targetId);
+        setConnectFrom(null);
+      } else if (moved) {
+        setConnectFrom(null);
+        showToast("Drop the connection on a node's left port");
+      }
+
+      connectionDragRef.current = null;
+      setConnectionPointer(null);
+    };
+
+    window.addEventListener("pointermove", handleConnectionMove);
+    window.addEventListener("pointerup", handleConnectionUp);
+    return () => {
+      window.removeEventListener("pointermove", handleConnectionMove);
+      window.removeEventListener("pointerup", handleConnectionUp);
+    };
+  }, [connectNodes, pan.x, pan.y, showToast, zoom]);
 
   const undo = () => {
     const previous = undoStack.at(-1);
@@ -1116,15 +1178,17 @@ export default function Home() {
     setLogs([{ id: "ready-demo", time: "Ready", level: "info", message: "Demo loaded: question → prompt → model → reply." }]);
     setValidationIssues([]);
     setConnectFrom(null);
-    setZoom(0.84);
-    setPan({ x: 28, y: 30 });
-    showToast("Demo workflow loaded — press Run workflow");
+    setSelectedEdgeId(null);
+    setZoom(0.9);
+    setPan({ x: 28, y: 54 });
+    showToast("Demo loaded — press Test workflow");
   };
 
   const newWorkflow = () => {
     commit([], []);
     setWorkflowName("Untitled workflow");
     setSelectedId("");
+    setSelectedEdgeId(null);
     setLogs([{ id: "new", time: "Ready", level: "info", message: "Blank workflow created." }]);
     showToast("Blank workflow created");
   };
@@ -1154,6 +1218,16 @@ export default function Home() {
     };
   });
 
+  const connectionPreviewPath = (() => {
+    if (!connectFrom || !connectionPointer) return null;
+    const source = nodes.find((node) => node.id === connectFrom);
+    if (!source) return null;
+    const x1 = source.x + NODE_WIDTH;
+    const y1 = source.y + PORT_Y;
+    const curve = Math.max(60, Math.abs(connectionPointer.x - x1) * 0.45);
+    return `M ${x1} ${y1} C ${x1 + curve} ${y1}, ${connectionPointer.x - curve} ${connectionPointer.y}, ${connectionPointer.x} ${connectionPointer.y}`;
+  })();
+
   const outputNodes = nodes.filter((node) => node.output);
   const errorLogs = logs.filter((log) => log.level === "error");
   const agentTraceEvents = nodes.flatMap((node) =>
@@ -1167,7 +1241,7 @@ export default function Home() {
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
           <div>
             <div className="brand-name">Flowcraft</div>
-            <div className="brand-context">AI workflow builder</div>
+            <div className="brand-context">Workflow automation</div>
           </div>
         </div>
 
@@ -1187,11 +1261,11 @@ export default function Home() {
             <button className="icon-button" onClick={redo} disabled={!redoStack.length || isRunning} aria-label="Redo">↷</button>
           </div>
           <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Load demo</button>
-          <button className="toolbar-button subtle" onClick={() => showToast("Workflow saved locally")}><span className="button-icon">⌁</span> Save</button>
+          <button className="toolbar-button subtle" onClick={() => showToast("Workflow saved locally")}><span className="button-icon">✓</span> Saved</button>
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
             <span className={isRunning ? "run-spinner" : "play-mark"}>{isRunning ? "" : "▶"}</span>
-            {isRunning ? "Running workflow" : "Run workflow"}
+            {isRunning ? "Executing…" : "Test workflow"}
           </button>
           <button className="avatar-button" aria-label="Account menu">SG</button>
         </div>
@@ -1201,8 +1275,8 @@ export default function Home() {
         <aside className="node-library" aria-label="Node library">
           <div className="panel-heading library-heading">
             <div>
-              <span className="eyebrow">BUILD</span>
-              <h2>Node library</h2>
+              <span className="eyebrow">WORKFLOW NODES</span>
+              <h2>Add a step</h2>
             </div>
             <button className="mini-button" onClick={newWorkflow} aria-label="New blank workflow">＋</button>
           </div>
@@ -1247,12 +1321,12 @@ export default function Home() {
             })}
             {!filteredCatalog.length && <p className="empty-message">No nodes match “{search}”.</p>}
           </div>
-          <div className="library-tip"><span>i</span> Drag a node onto the canvas, or click to add it.</div>
+          <div className="library-tip"><span>i</span> Add a step, then drag from its right connector to the next step’s left connector.</div>
         </aside>
 
         <section className="canvas-panel">
           <div className="canvas-toolbar">
-            <div className="breadcrumb"><span>Workflows</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
+            <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
             <div className="canvas-meta">
               <span className={`health-pill ${validationIssues.length ? "has-errors" : ""}`}>
                 <span /> {validationIssues.length ? `${validationIssues.length} issues` : "Graph healthy"}
@@ -1268,16 +1342,26 @@ export default function Home() {
             onDragOver={(event) => event.preventDefault()}
             onDrop={handleCanvasDrop}
             onPointerDown={(event) => {
-              if ((event.target as HTMLElement).closest(".workflow-node")) return;
+              if ((event.target as HTMLElement).closest(".workflow-node, .edge-toolbar, .zoom-controls, .minimap, button, input, textarea, select")) return;
               setSelectedId("");
+              setSelectedEdgeId(null);
               setPanning({ startX: event.clientX, startY: event.clientY, panX: pan.x, panY: pan.y });
             }}
           >
             <div className="canvas-grid" />
             <div className="world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
-              <svg className="edge-layer" viewBox="0 0 1220 720" aria-hidden="true">
+              <svg className="edge-layer" viewBox="0 0 1220 720" aria-label="Workflow connections">
                 {edgePaths.map((edge) => edge && (
-                  <g key={edge.id} className="edge-group">
+                  <g
+                    key={edge.id}
+                    className={`edge-group ${selectedEdgeId === edge.id ? "is-selected" : ""}`}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setSelectedEdgeId(edge.id);
+                      setSelectedId("");
+                    }}
+                  >
                     <path className="edge-hit" d={edge.path} />
                     <path className="edge-line" d={edge.path} />
                     <circle className="edge-pulse" r="4">
@@ -1285,6 +1369,7 @@ export default function Home() {
                     </circle>
                   </g>
                 ))}
+                {connectionPreviewPath && <path className="edge-preview" d={connectionPreviewPath} />}
               </svg>
 
               {nodes.map((node) => {
@@ -1301,6 +1386,7 @@ export default function Home() {
                         return;
                       }
                       setSelectedId(node.id);
+                      setSelectedEdgeId(null);
                     }}
                     aria-label={`${node.name}, ${statusLabel(node.status)}`}
                   >
@@ -1323,6 +1409,7 @@ export default function Home() {
                         }}
                         aria-label={`Connect into ${node.name}`}
                         title={`Drop a connection into ${node.name}`}
+                        data-input-node={node.id}
                       />
                     )}
                     <div
@@ -1340,8 +1427,8 @@ export default function Home() {
                         });
                       }}
                     >
-                      <span className={`node-mark category-${node.category.toLowerCase()}`}>{item.mark}</span>
-                      <div className="node-title-copy"><strong>{node.name}</strong><small>{node.category}</small></div>
+                        <span className={`node-mark category-${node.category.toLowerCase()}`}>{item.mark}</span>
+                      <div className="node-title-copy"><strong>{node.name}</strong><small>{node.category === "Input" ? "Trigger" : node.category}</small></div>
                       <span className={`node-status status-${node.status}`}>
                         {["running", "planning", "acting", "observing"].includes(node.status) && <span className="run-spinner small" />}
                         {statusLabel(node.status)}
@@ -1377,15 +1464,23 @@ export default function Home() {
                     {node.category !== "Output" && (
                       <button
                         className={`port output-port ${connectFrom === node.id ? "is-active" : ""}`}
-                        onClick={(event) => { event.stopPropagation(); setConnectFrom(connectFrom === node.id ? null : node.id); }}
-                        draggable
-                        onDragStart={(event) => {
+                        onPointerDown={(event) => {
+                          event.preventDefault();
                           event.stopPropagation();
-                          event.dataTransfer.effectAllowed = "link";
-                          event.dataTransfer.setData("application/x-flowcraft-connection", node.id);
                           setConnectFrom(node.id);
+                          connectionDragRef.current = {
+                            from: node.id,
+                            startX: event.clientX,
+                            startY: event.clientY,
+                          };
+                          const rect = canvasRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setConnectionPointer({
+                              x: (event.clientX - rect.left - pan.x) / zoom,
+                              y: (event.clientY - rect.top - pan.y) / zoom,
+                            });
+                          }
                         }}
-                        onDragEnd={() => setConnectFrom(null)}
                         aria-label={`Connect from ${node.name}`}
                         title={`Drag a connection from ${node.name}`}
                       />
@@ -1404,14 +1499,21 @@ export default function Home() {
               </div>
             )}
 
-            {connectFrom && <div className="connect-banner">Click a highlighted target node, click its left port, or drag to it <button onClick={() => setConnectFrom(null)}>Cancel</button></div>}
+            {connectFrom && <div className="connect-banner"><strong>Connecting</strong><span>Drop on a left port or click a highlighted step</span><button onClick={() => { setConnectFrom(null); setConnectionPointer(null); connectionDragRef.current = null; }}>Cancel</button></div>}
+
+            {selectedEdgeId && (
+              <div className="edge-toolbar" onPointerDown={(event) => event.stopPropagation()}>
+                <span>Connection selected</span>
+                <button onClick={() => removeEdge(selectedEdgeId)}>Delete connection</button>
+              </div>
+            )}
 
             <div className="zoom-controls">
               <button onClick={() => setZoom((value) => Math.min(1.35, value + 0.1))} aria-label="Zoom in">＋</button>
               <button className="zoom-value" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
               <button onClick={() => setZoom((value) => Math.max(0.5, value - 0.1))} aria-label="Zoom out">−</button>
               <span />
-              <button onClick={() => { setZoom(0.84); setPan({ x: 28, y: 30 }); }} aria-label="Fit workflow">⌗</button>
+              <button onClick={() => { setZoom(0.9); setPan({ x: 28, y: 54 }); }} aria-label="Fit workflow">⌗</button>
             </div>
 
             <div className="minimap" aria-label="Workflow minimap">
@@ -1426,7 +1528,7 @@ export default function Home() {
             <>
               <div className="config-header">
                 <div>
-                  <span className="eyebrow">CONFIGURE</span>
+                  <span className="eyebrow">STEP SETTINGS</span>
                   <h2>{selectedNode.name}</h2>
                 </div>
                 <button className="mini-button" onClick={() => setSelectedId("")} aria-label="Close configuration">×</button>
@@ -1627,9 +1729,9 @@ export default function Home() {
             </>
           ) : (
             <div className="no-selection">
-              <div className="no-selection-mark">⌁</div>
-              <h2>Select a node</h2>
-              <p>Choose any node on the canvas to edit its configuration and inspect its output.</p>
+              <div className="no-selection-mark">＋</div>
+              <h2>Select a workflow step</h2>
+              <p>Choose a step to edit it, or select a connection to remove it.</p>
             </div>
           )}
         </aside>
@@ -1637,7 +1739,7 @@ export default function Home() {
         <section className={`console-panel ${consoleOpen ? "is-open" : "is-collapsed"}`} aria-label="Execution console">
           <div className="console-header">
             <div className="console-tabs">
-              <button className={consoleTab === "logs" ? "active" : ""} onClick={() => setConsoleTab("logs")}>Execution log <span>{logs.length}</span></button>
+              <button className={consoleTab === "logs" ? "active" : ""} onClick={() => setConsoleTab("logs")}>Run log <span>{logs.length}</span></button>
               <button className={consoleTab === "trace" ? "active" : ""} onClick={() => setConsoleTab("trace")}>Agent trace <span>{agentTraceEvents.length}</span></button>
               <button className={consoleTab === "outputs" ? "active" : ""} onClick={() => setConsoleTab("outputs")}>Outputs <span>{outputNodes.length}</span></button>
               <button className={consoleTab === "errors" ? "active" : ""} onClick={() => setConsoleTab("errors")}>Errors <span className={errorLogs.length ? "error-count" : ""}>{errorLogs.length}</span></button>

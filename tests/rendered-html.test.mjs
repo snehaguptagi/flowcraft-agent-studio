@@ -20,11 +20,11 @@ test("server-renders the Flowcraft AI workflow builder", async () => {
   const html = await response.text();
   assert.match(html, /<title>Flowcraft — AI Workflow Builder<\/title>/i);
   assert.match(html, /Flowcraft/);
-  assert.match(html, /Node library/);
-  assert.match(html, /Run workflow/);
+  assert.match(html, /Add a step/);
+  assert.match(html, /Test workflow/);
   assert.match(html, /Demo · Customer support reply/);
   assert.match(html, /Load demo/);
-  assert.match(html, /Drag a connection from Customer question/);
+  assert.match(html, /Drag a connection from When test workflow runs/);
   assert.match(html, /Research Agent/);
   assert.match(html, /Agent trace/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

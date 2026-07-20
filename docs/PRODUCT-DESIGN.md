@@ -38,3 +38,18 @@ Do not use an Agent node for a fixed prompt, summarization, classification, tran
 ## Design principle
 
 Flowcraft should make the simple path obvious and the powerful path available. Autonomy is never the default and must not obscure the workflow a user designed.
+
+## Workflow editor interaction model
+
+The editor follows the interaction pattern established by tools such as n8n without copying their branding:
+
+- The canvas is the primary workspace and reads from left to right.
+- The first node is a trigger; the last node is an output.
+- Every step has a visible input port on the left and output port on the right when applicable.
+- Dragging an output port shows a live connection line; dropping on an input port creates the connection.
+- Clicking an output port and then a highlighted target is an accessible alternative.
+- Selecting a connection exposes a clear delete action.
+- The left panel adds steps, the right panel edits the selected step, and the bottom panel shows run data.
+- **Test workflow** validates the graph, executes it in dependency order, and exposes intermediate and final outputs.
+
+The default demo is a complete local workflow: sample customer input → prompt construction → AI response demonstration → returned chat response.
