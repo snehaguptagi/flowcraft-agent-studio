@@ -270,7 +270,10 @@ The MVP is accepted when:
 
 - A first-time user can recognize the product as an AI workflow builder.
 - The default canvas shows Input → Prompt → Model → Output without an Agent node.
-- A visible Load demo control restores a complete runnable workflow.
+- A visible Demo workflow control restores a complete runnable workflow.
+- The editor opens canvas-first; the configuration inspector appears only for a selected step and the run console expands when needed.
+- Suggested nodes cover the normal workflow path, while optional Agent nodes are disclosed as an advanced capability.
+- The local demo runtime is visibly identified and cannot be mistaken for a live provider call.
 - A user can connect two compatible nodes by dragging from the source's right port to the target's left port.
 - A live connection preview follows the pointer while a new edge is dragged.
 - A user can select and delete an existing connection.

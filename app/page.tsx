@@ -107,9 +107,19 @@ type CatalogItem = {
   availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v5";
+const STORAGE_KEY = "flowcraft-ai-workflow-v6";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
+const recommendedNodeTypes = new Set([
+  "text-input",
+  "file-upload",
+  "prompt",
+  "llm",
+  "rag",
+  "if-else",
+  "chat-output",
+  "json-output",
+]);
 
 const catalog: CatalogItem[] = [
   { type: "text-input", name: "Text input", category: "Input", description: "Collect a text value", mark: "T", config: { value: "How can I reset a locked workspace?" } },
@@ -207,7 +217,7 @@ const catalog: CatalogItem[] = [
     },
   },
   { type: "prompt", name: "Prompt", category: "AI", description: "Build a reusable prompt", mark: "P", config: { prompt: "Answer the customer clearly using only the provided context.", variables: "question, context" } },
-  { type: "llm", name: "LLM", category: "AI", description: "Generate with a language model", mark: "AI", config: { provider: "OpenAI", model: "GPT-4.1 mini", temperature: 0.3, maxTokens: 900 } },
+  { type: "llm", name: "AI response", category: "AI", description: "Generate a response with the local demo runtime", mark: "AI", config: { provider: "Demo runtime", model: "Local response model", temperature: 0.3, maxTokens: 900 } },
   { type: "embedding", name: "Embedding", category: "AI", description: "Create vector embeddings", mark: "E", config: { provider: "OpenAI", model: "text-embedding-3-small" } },
   { type: "rag", name: "RAG", category: "AI", description: "Retrieve relevant context", mark: "R", config: { model: "Hybrid search", maxTokens: 1200 } },
   { type: "summarizer", name: "Summarizer", category: "AI", description: "Condense long content", mark: "S", config: { prompt: "Summarize the key facts in three bullets." } },
@@ -229,9 +239,9 @@ const initialNodes: WorkflowNode[] = [
     id: "input-1",
     type: "text-input",
     category: "Input",
-    name: "When test workflow runs",
+    name: "Manual trigger",
     description: "Start with sample customer input",
-    x: 72,
+    x: 36,
     y: 184,
     status: "idle",
     config: { value: "How can I reset a locked workspace?" },
@@ -240,9 +250,9 @@ const initialNodes: WorkflowNode[] = [
     id: "prompt-1",
     type: "prompt",
     category: "AI",
-    name: "Build support prompt",
+    name: "Build prompt",
     description: "Build a reusable prompt",
-    x: 360,
+    x: 300,
     y: 184,
     status: "idle",
     config: {
@@ -255,11 +265,11 @@ const initialNodes: WorkflowNode[] = [
     type: "llm",
     category: "AI",
     name: "Generate answer",
-    description: "Generate with a language model",
-    x: 648,
+    description: "Generate with the local demo runtime",
+    x: 564,
     y: 184,
     status: "idle",
-    config: { provider: "OpenAI", model: "GPT-4.1 mini", temperature: 0.3, maxTokens: 900 },
+    config: { provider: "Demo runtime", model: "Local response model", temperature: 0.3, maxTokens: 900 },
   },
   {
     id: "output-1",
@@ -267,7 +277,7 @@ const initialNodes: WorkflowNode[] = [
     category: "Output",
     name: "Return response",
     description: "Display a chat response",
-    x: 936,
+    x: 828,
     y: 184,
     status: "idle",
     config: { format: "Chat" },
@@ -350,9 +360,12 @@ function connectionCreatesCycle(edges: WorkflowEdge[], from: string, to: string)
 export default function Home() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges);
-  const [selectedId, setSelectedId] = useState<string>("prompt-1");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [workflowName, setWorkflowName] = useState("Demo · Customer support reply");
   const [search, setSearch] = useState("");
+  const [libraryView, setLibraryView] = useState<"recommended" | "all">("recommended");
+  const [showAdvancedNodes, setShowAdvancedNodes] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 28, y: 54 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
@@ -362,8 +375,7 @@ export default function Home() {
     { id: "ready", time: "Ready", level: "info", message: "Demo workflow ready: question → prompt → model → reply." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
-  const [consoleOpen, setConsoleOpen] = useState(true);
-  const [validationIssues, setValidationIssues] = useState<string[]>([]);
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runDuration, setRunDuration] = useState<number | null>(null);
   const [darkMode, setDarkMode] = useState(false);
@@ -385,6 +397,7 @@ export default function Home() {
     panY: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const hydratedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -490,14 +503,18 @@ export default function Home() {
 
   const filteredCatalog = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return catalog;
-    return catalog.filter(
-      (item) =>
+    return catalog.filter((item) => {
+      const matchesQuery = !query ||
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
-        item.category.toLowerCase().includes(query),
-    );
-  }, [search]);
+        item.category.toLowerCase().includes(query);
+      if (!matchesQuery) return false;
+      if (query) return true;
+      if (item.category === "Agent" && !showAdvancedNodes) return false;
+      if (libraryView === "recommended") return recommendedNodeTypes.has(item.type);
+      return true;
+    });
+  }, [libraryView, search, showAdvancedNodes]);
 
   const getItem = (type: string) => catalog.find((item) => item.type === type) ?? catalog[0];
 
@@ -551,6 +568,12 @@ export default function Home() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setLibraryOpen(true);
+        window.requestAnimationFrame(() => searchInputRef.current?.focus());
+        return;
+      }
       if (target?.matches("input, textarea, select")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -785,6 +808,9 @@ export default function Home() {
       }
       if (node.type === "prompt" && !node.config.prompt?.trim()) issues.push(`${node.name} is missing a prompt.`);
       if (node.type === "llm" && !node.config.model?.trim()) issues.push(`${node.name} is missing a model.`);
+      if (node.category === "AI" && node.config.provider && node.config.provider !== "Demo runtime") {
+        issues.push(`${node.name} uses ${node.config.provider}, but no live provider connection is configured. Choose Demo runtime to test locally.`);
+      }
       if (node.category === "Agent") {
         if (!node.config.role?.trim()) issues.push(`${node.name} is missing an agent role.`);
         if (!node.config.goal?.trim()) issues.push(`${node.name} is missing a goal.`);
@@ -893,7 +919,6 @@ export default function Home() {
   const runWorkflow = async () => {
     if (isRunning) return;
     const issues = validateWorkflow();
-    setValidationIssues(issues);
     setConsoleOpen(true);
     if (issues.length) {
       setConsoleTab("errors");
@@ -1120,6 +1145,9 @@ export default function Home() {
       } else {
         await sleep(380 + (node.type.length % 4) * 90);
         output = computeOutput(node, inputValues);
+        if (node.type === "llm") {
+          addLog({ level: "info", node: node.name, message: "Generated by the deterministic local demo runtime" });
+        }
       }
 
       outputs.set(id, output);
@@ -1174,11 +1202,14 @@ export default function Home() {
   const loadDemoWorkflow = () => {
     commit(cloneSnapshot(initialNodes, initialEdges).nodes, cloneSnapshot(initialNodes, initialEdges).edges);
     setWorkflowName("Demo · Customer support reply");
-    setSelectedId("prompt-1");
+    setSelectedId("");
     setLogs([{ id: "ready-demo", time: "Ready", level: "info", message: "Demo loaded: question → prompt → model → reply." }]);
-    setValidationIssues([]);
     setConnectFrom(null);
     setSelectedEdgeId(null);
+    setConsoleOpen(false);
+    setLibraryView("recommended");
+    setShowAdvancedNodes(false);
+    setLibraryOpen(true);
     setZoom(0.9);
     setPan({ x: 28, y: 54 });
     showToast("Demo loaded — press Test workflow");
@@ -1189,6 +1220,10 @@ export default function Home() {
     setWorkflowName("Untitled workflow");
     setSelectedId("");
     setSelectedEdgeId(null);
+    setConsoleOpen(false);
+    setLibraryView("recommended");
+    setShowAdvancedNodes(false);
+    setLibraryOpen(true);
     setLogs([{ id: "new", time: "Ready", level: "info", message: "Blank workflow created." }]);
     showToast("Blank workflow created");
   };
@@ -1202,6 +1237,24 @@ export default function Home() {
     const y = (event.clientY - rect.top - pan.y) / zoom - 30;
     createNode(type, Math.max(8, x), Math.max(8, y));
   };
+
+  const fitWorkflow = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !nodes.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const minX = Math.min(...nodes.map((node) => node.x));
+    const minY = Math.min(...nodes.map((node) => node.y));
+    const maxX = Math.max(...nodes.map((node) => node.x + NODE_WIDTH));
+    const maxY = Math.max(...nodes.map((node) => node.y + 140));
+    const contentWidth = Math.max(1, maxX - minX);
+    const contentHeight = Math.max(1, maxY - minY);
+    const nextZoom = Math.max(0.5, Math.min(1, (rect.width - 88) / contentWidth, (rect.height - 96) / contentHeight));
+    setZoom(Number(nextZoom.toFixed(2)));
+    setPan({
+      x: (rect.width - contentWidth * nextZoom) / 2 - minX * nextZoom,
+      y: (rect.height - contentHeight * nextZoom) / 2 - minY * nextZoom,
+    });
+  }, [nodes]);
 
   const edgePaths = edges.map((edge) => {
     const source = nodes.find((node) => node.id === edge.from);
@@ -1233,6 +1286,7 @@ export default function Home() {
   const agentTraceEvents = nodes.flatMap((node) =>
     (node.agentTrace ?? []).map((event) => ({ event, nodeName: node.name })),
   );
+  const graphIssues = validateWorkflow();
 
   return (
     <main className={`app-shell ${darkMode ? "theme-dark" : ""}`}>
@@ -1260,18 +1314,18 @@ export default function Home() {
             <button className="icon-button" onClick={undo} disabled={!undoStack.length || isRunning} aria-label="Undo">↶</button>
             <button className="icon-button" onClick={redo} disabled={!redoStack.length || isRunning} aria-label="Redo">↷</button>
           </div>
-          <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Load demo</button>
-          <button className="toolbar-button subtle" onClick={() => showToast("Workflow saved locally")}><span className="button-icon">✓</span> Saved</button>
+          <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Demo workflow</button>
+          <button className="toolbar-button subtle compact" onClick={() => fileInputRef.current?.click()} aria-label="Import workflow">Import</button>
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
+          <button className="icon-button standalone" onClick={() => setDarkMode((value) => !value)} aria-label="Toggle theme" title="Toggle theme">{darkMode ? "☀" : "◐"}</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
             <span className={isRunning ? "run-spinner" : "play-mark"}>{isRunning ? "" : "▶"}</span>
             {isRunning ? "Executing…" : "Test workflow"}
           </button>
-          <button className="avatar-button" aria-label="Account menu">SG</button>
         </div>
       </header>
 
-      <section className="workspace-grid">
+      <section className={`workspace-grid ${libraryOpen ? "" : "library-collapsed"} ${selectedNode ? "inspector-open" : ""} ${consoleOpen ? "console-open" : ""}`}>
         <aside className="node-library" aria-label="Node library">
           <div className="panel-heading library-heading">
             <div>
@@ -1282,9 +1336,13 @@ export default function Home() {
           </div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search nodes" />
+            <input ref={searchInputRef} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search nodes" />
             <kbd>⌘ K</kbd>
           </label>
+          <div className="library-tabs" aria-label="Node list filter">
+            <button className={libraryView === "recommended" ? "active" : ""} onClick={() => setLibraryView("recommended")}>Suggested</button>
+            <button className={libraryView === "all" ? "active" : ""} onClick={() => setLibraryView("all")}>All nodes</button>
+          </div>
           <div className="library-scroll">
             {categoryOrder.map((category) => {
               const items = filteredCatalog.filter((item) => item.category === category);
@@ -1319,6 +1377,13 @@ export default function Home() {
                 </div>
               );
             })}
+            {!search && libraryView === "all" && (
+              <button className={`advanced-node-toggle ${showAdvancedNodes ? "is-open" : ""}`} onClick={() => setShowAdvancedNodes((value) => !value)}>
+                <span className="node-mark category-agent">A</span>
+                <span><strong>Advanced agent nodes</strong><small>Optional steps that can choose tools and actions</small></span>
+                <b>{showAdvancedNodes ? "Hide" : "Show"}</b>
+              </button>
+            )}
             {!filteredCatalog.length && <p className="empty-message">No nodes match “{search}”.</p>}
           </div>
           <div className="library-tip"><span>i</span> Add a step, then drag from its right connector to the next step’s left connector.</div>
@@ -1326,10 +1391,16 @@ export default function Home() {
 
         <section className="canvas-panel">
           <div className="canvas-toolbar">
-            <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
+            <div className="canvas-toolbar-left">
+              <button className="panel-toggle" onClick={() => setLibraryOpen((value) => !value)} aria-label={libraryOpen ? "Hide node library" : "Show node library"}>
+                <span>{libraryOpen ? "‹" : "›"}</span> Nodes
+              </button>
+              <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
+            </div>
             <div className="canvas-meta">
-              <span className={`health-pill ${validationIssues.length ? "has-errors" : ""}`}>
-                <span /> {validationIssues.length ? `${validationIssues.length} issues` : "Graph healthy"}
+              <span className="runtime-pill" title="AI responses use a deterministic local sample until a provider backend is connected"><span /> Local demo</span>
+              <span className={`health-pill ${graphIssues.length ? "has-errors" : ""}`}>
+                <span /> {graphIssues.length ? `${graphIssues.length} ${graphIssues.length === 1 ? "issue" : "issues"}` : "Graph healthy"}
               </span>
               <span>{nodes.length} nodes</span>
               <span>{edges.length} connections</span>
@@ -1457,9 +1528,11 @@ export default function Home() {
                           ? `${node.latency} ms`
                           : node.category === "Agent"
                             ? `${node.config.allowedTools?.length ?? 0} tools · ${node.config.maxSteps ?? 0} steps`
-                            : "Configured"}
+                            : node.type === "llm"
+                              ? "Local demo"
+                              : "Configured"}
                       </span>
-                      <button onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`}>•••</button>
+                      <button className="node-delete" onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`} title={`Delete ${node.name}`}>×</button>
                     </div>
                     {node.category !== "Output" && (
                       <button
@@ -1513,7 +1586,7 @@ export default function Home() {
               <button className="zoom-value" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
               <button onClick={() => setZoom((value) => Math.max(0.5, value - 0.1))} aria-label="Zoom out">−</button>
               <span />
-              <button onClick={() => { setZoom(0.9); setPan({ x: 28, y: 54 }); }} aria-label="Fit workflow">⌗</button>
+              <button onClick={fitWorkflow} aria-label="Fit workflow">⌗</button>
             </div>
 
             <div className="minimap" aria-label="Workflow minimap">
@@ -1523,8 +1596,8 @@ export default function Home() {
           </div>
         </section>
 
-        <aside className="config-panel" aria-label="Node configuration">
-          {selectedNode ? (
+        {selectedNode && (
+          <aside className="config-panel" aria-label="Node configuration">
             <>
               <div className="config-header">
                 <div>
@@ -1699,8 +1772,17 @@ export default function Home() {
                 {(selectedNode.type === "llm" || selectedNode.config.provider !== undefined) && (
                   <div className="form-section">
                     <div className="form-section-title"><span>Model settings</span><span>⌃</span></div>
-                    <label className="field-label">Provider<select value={selectedNode.config.provider ?? "OpenAI"} onChange={(event) => updateConfig("provider", event.target.value)}><option>OpenAI</option><option>Gemini</option><option>Claude</option></select></label>
-                    <label className="field-label">Model<select value={selectedNode.config.model ?? "GPT-4.1 mini"} onChange={(event) => updateConfig("model", event.target.value)}><option>GPT-4.1 mini</option><option>GPT-4.1</option><option>Gemini 2.5 Flash</option><option>Claude Sonnet 4</option></select></label>
+                    {selectedNode.type === "llm" && (
+                      <div className={`runtime-notice ${selectedNode.config.provider === "Demo runtime" ? "is-local" : "needs-connection"}`}>
+                        <span>{selectedNode.config.provider === "Demo runtime" ? "✓" : "!"}</span>
+                        <div>
+                          <strong>{selectedNode.config.provider === "Demo runtime" ? "Local demo runtime" : "Provider connection required"}</strong>
+                          <p>{selectedNode.config.provider === "Demo runtime" ? "Runs a deterministic sample response without credentials." : "This workflow will not run until a secure backend connection is configured."}</p>
+                        </div>
+                      </div>
+                    )}
+                    <label className="field-label">Provider<select value={selectedNode.config.provider ?? (selectedNode.category === "Agent" ? "OpenAI" : "Demo runtime")} onChange={(event) => updateConfig("provider", event.target.value)}><option>Demo runtime</option><option>OpenAI</option><option>Gemini</option><option>Claude</option></select></label>
+                    <label className="field-label">Model<select value={selectedNode.config.model ?? "Local response model"} onChange={(event) => updateConfig("model", event.target.value)}><option>Local response model</option><option>GPT-4.1 mini</option><option>GPT-4.1</option><option>Gemini 2.5 Flash</option><option>Claude Sonnet 4</option></select></label>
                     <div className="field-row">
                       <label className="field-label">Temperature<input type="number" min="0" max="2" step="0.1" value={selectedNode.config.temperature ?? 0.3} onChange={(event) => updateConfig("temperature", Number(event.target.value))} /></label>
                       <label className="field-label">Max tokens<input type="number" min="1" value={selectedNode.config.maxTokens ?? 900} onChange={(event) => updateConfig("maxTokens", Number(event.target.value))} /></label>
@@ -1727,22 +1809,16 @@ export default function Home() {
                 <button onClick={() => removeNode(selectedNode.id)}>Delete node</button>
               </div>
             </>
-          ) : (
-            <div className="no-selection">
-              <div className="no-selection-mark">＋</div>
-              <h2>Select a workflow step</h2>
-              <p>Choose a step to edit it, or select a connection to remove it.</p>
-            </div>
-          )}
-        </aside>
+          </aside>
+        )}
 
         <section className={`console-panel ${consoleOpen ? "is-open" : "is-collapsed"}`} aria-label="Execution console">
           <div className="console-header">
             <div className="console-tabs">
-              <button className={consoleTab === "logs" ? "active" : ""} onClick={() => setConsoleTab("logs")}>Run log <span>{logs.length}</span></button>
-              <button className={consoleTab === "trace" ? "active" : ""} onClick={() => setConsoleTab("trace")}>Agent trace <span>{agentTraceEvents.length}</span></button>
-              <button className={consoleTab === "outputs" ? "active" : ""} onClick={() => setConsoleTab("outputs")}>Outputs <span>{outputNodes.length}</span></button>
-              <button className={consoleTab === "errors" ? "active" : ""} onClick={() => setConsoleTab("errors")}>Errors <span className={errorLogs.length ? "error-count" : ""}>{errorLogs.length}</span></button>
+              <button className={consoleTab === "logs" ? "active" : ""} onClick={() => { setConsoleTab("logs"); setConsoleOpen(true); }}>Run log <span>{logs.length}</span></button>
+              <button className={consoleTab === "trace" ? "active" : ""} onClick={() => { setConsoleTab("trace"); setConsoleOpen(true); }}>Agent trace <span>{agentTraceEvents.length}</span></button>
+              <button className={consoleTab === "outputs" ? "active" : ""} onClick={() => { setConsoleTab("outputs"); setConsoleOpen(true); }}>Outputs <span>{outputNodes.length}</span></button>
+              <button className={consoleTab === "errors" ? "active" : ""} onClick={() => { setConsoleTab("errors"); setConsoleOpen(true); }}>Errors <span className={errorLogs.length ? "error-count" : ""}>{errorLogs.length}</span></button>
             </div>
             <div className="console-actions">
               {runDuration && <span>Last run {runDuration} ms</span>}
@@ -1807,11 +1883,6 @@ export default function Home() {
       </section>
 
       <input ref={fileInputRef} className="visually-hidden" type="file" accept="application/json,.json" onChange={importWorkflow} />
-      <nav className="utility-rail" aria-label="Workflow utilities">
-        <button onClick={() => fileInputRef.current?.click()} title="Import workflow">⇧</button>
-        <button onClick={() => setDarkMode((value) => !value)} title="Toggle theme">{darkMode ? "☀" : "◐"}</button>
-        <button onClick={() => showToast("Connect: drag right port to left port, or click a right port then its target node")} title="Connection help">?</button>
-      </nav>
       {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
     </main>
   );

@@ -37,9 +37,13 @@ npm ci
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The canvas and browser-safe workflow demonstrations work without environment variables.
+Open [http://localhost:3000](http://localhost:3000). The canvas and deterministic local workflow demonstration work without environment variables.
 
-Choose **Load demo** to restore the ready-to-run example, then press **Test workflow**. To connect nodes, drag the right port of a source node onto the left port of a target node. You can also click the source's right port and then click the highlighted target node. Select a connection to delete it.
+Choose **Demo workflow** to restore the ready-to-run example, then press **Test workflow**. To connect nodes, drag the right port of a source node onto the left port of a target node. You can also click the source's right port and then click the highlighted target node. Select a connection to delete it.
+
+The editor is canvas-first: suggested nodes appear first, the step inspector opens only when a node is selected, and the run console stays collapsed until it is needed. Agent nodes are kept under **All nodes → Advanced agent nodes** because they are optional rather than the default workflow model.
+
+The included **Demo runtime** produces a clearly labeled deterministic AI sample. Selecting OpenAI, Gemini, or Claude intentionally blocks local execution until a secure backend provider connection is configured; the UI does not pretend that a live model call happened.
 
 ### Optional Agent-node service
 
