@@ -164,7 +164,9 @@ An optional bounded node that may choose among explicitly approved tools over mu
 
 - Add nodes by click or drag-and-drop.
 - Move and delete nodes.
-- Connect compatible nodes.
+- Connect compatible nodes by port drag-and-drop, two-port clicks, or source-port then target-node clicks.
+- Highlight valid target nodes while a connection is in progress.
+- Prevent duplicate, self-referential, backwards, and circular connections at creation time.
 - Pan, zoom, fit, and use a minimap.
 - Undo and redo graph edits.
 - Show idle, queued, running, completed, and failed states.
@@ -268,6 +270,8 @@ The MVP is accepted when:
 
 - A first-time user can recognize the product as an AI workflow builder.
 - The default canvas shows Input → Prompt → Model → Output without an Agent node.
+- A visible Load demo control restores a complete runnable workflow.
+- A user can connect two compatible nodes by dragging from the source's right port to the target's left port.
 - A user can add, configure, connect, run, save, export, and import workflows.
 - Logs, outputs, and errors are inspectable.
 - The frontend runs locally without the Python service.

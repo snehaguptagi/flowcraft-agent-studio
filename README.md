@@ -15,6 +15,8 @@ Retrieval, classification, translation, logic, and structured-output nodes can b
 - Node configuration, validation, run states, logs, outputs, and error inspection
 - Local autosave plus versioned JSON import/export
 - Standard workflow-first starter template
+- Ready-to-run customer-support demo workflow
+- Port dragging, port clicking, and source-to-target node connection controls
 - Optional Research, Document, and Data Analyst nodes
 - Safe browser demonstrations for the three advanced nodes
 - Optional local FastAPI and LangGraph service for those Agent nodes
@@ -36,6 +38,8 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000). The canvas and browser-safe workflow demonstrations work without environment variables.
+
+Choose **Load demo** to restore the ready-to-run example. To connect nodes, drag the right port of a source node onto the left port of a target node. You can also click the source's right port and then click the highlighted target node.
 
 ### Optional Agent-node service
 

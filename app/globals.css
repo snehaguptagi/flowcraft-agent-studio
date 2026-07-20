@@ -549,7 +549,7 @@ textarea:focus-visible {
   will-change: transform;
 }
 
-.edge-layer { position: absolute; inset: 0; width: 1220px; height: 720px; overflow: visible; }
+.edge-layer { position: absolute; inset: 0; width: 1220px; height: 720px; overflow: visible; pointer-events: none; }
 .edge-line { fill: none; stroke: #abb3c3; stroke-width: 2; }
 .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
 .edge-pulse { fill: var(--accent); opacity: 0; }
@@ -572,6 +572,12 @@ textarea:focus-visible {
 .workflow-node.is-selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent), 0 12px 28px rgba(56, 49, 142, .15);
+}
+
+.workflow-node.is-connect-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 12px 28px rgba(56, 49, 142, .15);
+  cursor: crosshair;
 }
 
 .workflow-node.status-pending { opacity: .64; }
@@ -660,9 +666,9 @@ textarea:focus-visible {
 .port {
   position: absolute;
   z-index: 3;
-  top: 51px;
-  width: 13px;
-  height: 13px;
+  top: 48px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border: 3px solid var(--panel);
   border-radius: 50%;
@@ -671,11 +677,15 @@ textarea:focus-visible {
   cursor: crosshair;
 }
 
-.input-port { left: -7px; }
-.output-port { right: -7px; }
+.input-port { left: -10px; }
+.output-port { right: -10px; }
 .port:hover,
 .port.is-active,
 .port.is-connectable { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.output-port:active { cursor: grabbing; }
+
+.demo-button { border-color: color-mix(in srgb, var(--accent) 34%, var(--line)); color: var(--accent); }
 
 .connect-banner {
   position: absolute;

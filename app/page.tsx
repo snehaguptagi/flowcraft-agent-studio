@@ -107,7 +107,7 @@ type CatalogItem = {
   availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v3";
+const STORAGE_KEY = "flowcraft-ai-workflow-v4";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 
@@ -331,17 +331,33 @@ function phaseToNodeStatus(phase: AgentPhase): NodeStatus {
   return phase;
 }
 
+function connectionCreatesCycle(edges: WorkflowEdge[], from: string, to: string) {
+  const graph = new Map<string, string[]>();
+  edges.forEach((edge) => graph.set(edge.from, [...(graph.get(edge.from) ?? []), edge.to]));
+  const pending = [to];
+  const visited = new Set<string>();
+
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (current === from) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...(graph.get(current) ?? []));
+  }
+  return false;
+}
+
 export default function Home() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string>("prompt-1");
-  const [workflowName, setWorkflowName] = useState("Customer support reply");
+  const [workflowName, setWorkflowName] = useState("Demo · Customer support reply");
   const [search, setSearch] = useState("");
   const [zoom, setZoom] = useState(0.84);
   const [pan, setPan] = useState({ x: 28, y: 30 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Workflow-first template ready. Agent nodes are optional for dynamic tool use." },
+    { id: "ready", time: "Ready", level: "info", message: "Demo workflow ready: question → prompt → model → reply." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(true);
@@ -629,18 +645,39 @@ export default function Home() {
     event.target.value = "";
   };
 
-  const connectTo = useCallback((targetId: string) => {
-    if (!connectFrom || connectFrom === targetId) {
-      setConnectFrom(null);
+  const connectNodes = useCallback((sourceId: string, targetId: string) => {
+    const source = nodes.find((node) => node.id === sourceId);
+    const target = nodes.find((node) => node.id === targetId);
+    if (!source || !target) {
+      showToast("Choose two available nodes");
       return;
     }
-    const exists = edges.some((edge) => edge.from === connectFrom && edge.to === targetId);
-    if (!exists) {
-      commit(nodes, [...edges, { id: `edge-${Date.now()}`, from: connectFrom, to: targetId }]);
-      showToast("Nodes connected");
+    if (sourceId === targetId) {
+      showToast("A node cannot connect to itself");
+      return;
     }
+    if (source.category === "Output" || target.category === "Input") {
+      showToast("Connect from a right output port into a left input port");
+      return;
+    }
+    if (edges.some((edge) => edge.from === sourceId && edge.to === targetId)) {
+      showToast("Those nodes are already connected");
+      return;
+    }
+    if (connectionCreatesCycle(edges, sourceId, targetId)) {
+      showToast("That connection would create a loop");
+      return;
+    }
+    commit(nodes, [...edges, { id: `edge-${Date.now()}`, from: sourceId, to: targetId }]);
+    setSelectedId(targetId);
+    showToast(`${source.name} connected to ${target.name}`);
+  }, [commit, edges, nodes, showToast]);
+
+  const connectTo = useCallback((targetId: string) => {
+    if (!connectFrom) return;
+    connectNodes(connectFrom, targetId);
     setConnectFrom(null);
-  }, [commit, connectFrom, edges, nodes, showToast]);
+  }, [connectFrom, connectNodes]);
 
   const undo = () => {
     const previous = undoStack.at(-1);
@@ -1045,7 +1082,7 @@ export default function Home() {
   };
 
   const exportWorkflow = () => {
-    const payload = JSON.stringify({ version: 3, name: workflowName, nodes, edges }, null, 2);
+    const payload = JSON.stringify({ version: 4, name: workflowName, nodes, edges }, null, 2);
     const blob = new Blob([payload], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -1072,13 +1109,16 @@ export default function Home() {
     event.target.value = "";
   };
 
-  const resetTemplate = () => {
+  const loadDemoWorkflow = () => {
     commit(cloneSnapshot(initialNodes, initialEdges).nodes, cloneSnapshot(initialNodes, initialEdges).edges);
-    setWorkflowName("Customer support reply");
+    setWorkflowName("Demo · Customer support reply");
     setSelectedId("prompt-1");
-    setLogs([{ id: "ready-reset", time: "Ready", level: "info", message: "Standard AI workflow template loaded." }]);
+    setLogs([{ id: "ready-demo", time: "Ready", level: "info", message: "Demo loaded: question → prompt → model → reply." }]);
     setValidationIssues([]);
-    showToast("Template loaded");
+    setConnectFrom(null);
+    setZoom(0.84);
+    setPan({ x: 28, y: 30 });
+    showToast("Demo workflow loaded — press Run workflow");
   };
 
   const newWorkflow = () => {
@@ -1146,7 +1186,7 @@ export default function Home() {
             <button className="icon-button" onClick={undo} disabled={!undoStack.length || isRunning} aria-label="Undo">↶</button>
             <button className="icon-button" onClick={redo} disabled={!redoStack.length || isRunning} aria-label="Redo">↷</button>
           </div>
-          <button className="toolbar-button subtle" onClick={resetTemplate}><span className="button-icon">▦</span> Templates</button>
+          <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Load demo</button>
           <button className="toolbar-button subtle" onClick={() => showToast("Workflow saved locally")}><span className="button-icon">⌁</span> Save</button>
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
@@ -1252,16 +1292,37 @@ export default function Home() {
                 return (
                   <article
                     key={node.id}
-                    className={`workflow-node status-${node.status} ${selectedId === node.id ? "is-selected" : ""}`}
+                    className={`workflow-node status-${node.status} ${selectedId === node.id ? "is-selected" : ""} ${connectFrom && connectFrom !== node.id && node.category !== "Input" ? "is-connect-target" : ""}`}
                     style={{ left: node.x, top: node.y }}
-                    onClick={(event) => { event.stopPropagation(); setSelectedId(node.id); }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (connectFrom && connectFrom !== node.id && node.category !== "Input") {
+                        connectTo(node.id);
+                        return;
+                      }
+                      setSelectedId(node.id);
+                    }}
                     aria-label={`${node.name}, ${statusLabel(node.status)}`}
                   >
                     {node.category !== "Input" && (
                       <button
                         className={`port input-port ${connectFrom ? "is-connectable" : ""}`}
                         onClick={(event) => { event.stopPropagation(); connectTo(node.id); }}
+                        onDragOver={(event) => {
+                          if (event.dataTransfer.types.includes("application/x-flowcraft-connection")) {
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "link";
+                          }
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const sourceId = event.dataTransfer.getData("application/x-flowcraft-connection");
+                          if (sourceId) connectNodes(sourceId, node.id);
+                          setConnectFrom(null);
+                        }}
                         aria-label={`Connect into ${node.name}`}
+                        title={`Drop a connection into ${node.name}`}
                       />
                     )}
                     <div
@@ -1317,7 +1378,16 @@ export default function Home() {
                       <button
                         className={`port output-port ${connectFrom === node.id ? "is-active" : ""}`}
                         onClick={(event) => { event.stopPropagation(); setConnectFrom(connectFrom === node.id ? null : node.id); }}
+                        draggable
+                        onDragStart={(event) => {
+                          event.stopPropagation();
+                          event.dataTransfer.effectAllowed = "link";
+                          event.dataTransfer.setData("application/x-flowcraft-connection", node.id);
+                          setConnectFrom(node.id);
+                        }}
+                        onDragEnd={() => setConnectFrom(null)}
                         aria-label={`Connect from ${node.name}`}
+                        title={`Drag a connection from ${node.name}`}
                       />
                     )}
                   </article>
@@ -1329,12 +1399,12 @@ export default function Home() {
               <div className="empty-canvas">
                 <div className="empty-canvas-mark">＋</div>
                 <h3>Start with your first node</h3>
-                <p>Drag a node from the library or load the support copilot template.</p>
-                <button onClick={resetTemplate}>Load template</button>
+                <p>Drag a node from the library or load the ready-to-run demo.</p>
+                <button onClick={loadDemoWorkflow}>Load demo workflow</button>
               </div>
             )}
 
-            {connectFrom && <div className="connect-banner">Choose an input port to complete the connection <button onClick={() => setConnectFrom(null)}>Cancel</button></div>}
+            {connectFrom && <div className="connect-banner">Click a highlighted target node, click its left port, or drag to it <button onClick={() => setConnectFrom(null)}>Cancel</button></div>}
 
             <div className="zoom-controls">
               <button onClick={() => setZoom((value) => Math.min(1.35, value + 0.1))} aria-label="Zoom in">＋</button>
@@ -1638,7 +1708,7 @@ export default function Home() {
       <nav className="utility-rail" aria-label="Workflow utilities">
         <button onClick={() => fileInputRef.current?.click()} title="Import workflow">⇧</button>
         <button onClick={() => setDarkMode((value) => !value)} title="Toggle theme">{darkMode ? "☀" : "◐"}</button>
-        <button onClick={() => showToast("Shortcuts: drag nodes, click ports to connect, Delete removes a node")} title="Keyboard shortcuts">?</button>
+        <button onClick={() => showToast("Connect: drag right port to left port, or click a right port then its target node")} title="Connection help">?</button>
       </nav>
       {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
     </main>
