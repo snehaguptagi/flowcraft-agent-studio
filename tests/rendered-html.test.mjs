@@ -24,14 +24,15 @@ test("server-renders the Flowcraft AI workflow builder", async () => {
   assert.match(html, /Test workflow/);
   assert.match(html, /Demo · Inbox triage &amp; draft reply/);
   assert.match(html, /Templates/);
-  assert.match(html, /Local AI · Demo mailbox/);
+  assert.match(html, /Local AI · Preview only/);
   assert.match(html, /Primary navigation/);
   assert.match(html, />Demos</);
+  assert.match(html, />Connect</);
   assert.match(html, />Runs</);
   assert.match(html, /Connect from New email/);
   assert.match(html, /Draft reply/);
-  assert.match(html, /Save draft/);
-  assert.match(html, /Turn a new inbox message into a grounded, reviewable draft/);
+  assert.match(html, /Preview draft/);
+  assert.match(html, /Turn a sample email into a grounded draft preview/);
   assert.match(html, /Agent trace/);
   assert.doesNotMatch(html, /Research Agent/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

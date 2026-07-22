@@ -1,6 +1,6 @@
 # Flowcraft AI Workflow Builder — Product Requirements Document
 
-**Version:** 3.2
+**Version:** 3.3
 
 **Status:** Approved for workflow-first implementation
 
@@ -101,6 +101,10 @@ A reusable step with typed configuration, inputs, outputs, and a visible runtime
 
 A directed edge that moves a value from an upstream node to a downstream node and defines execution dependencies.
 
+### Credential connection
+
+A separately managed, server-backed authentication resource for an external service. Workflow nodes reference its ID. Sample data is not a credential connection, and a saved setup is not considered connected until authentication and a real provider test succeed.
+
 ### Run
 
 One execution of the current workflow, including status, logs, outputs, duration, and errors.
@@ -167,11 +171,11 @@ An optional bounded node that may choose among explicitly approved tools over mu
 
 ## 10.1 Flagship email journey
 
-1. Receive a new email from the demo mailbox or a connected provider.
+1. Start with editable sample email data, or select a genuinely authenticated provider connection.
 2. Classify intent, urgency, and sentiment.
 3. Retrieve approved policy context.
 4. Draft a grounded, empathetic reply.
-5. Save the result as a draft for human review.
+5. Preview the result locally, or create a provider draft only when a live connector is authenticated.
 6. Never send automatically.
 
 ## 11. Functional requirements
@@ -249,6 +253,10 @@ An optional bounded node that may choose among explicitly approved tools over mu
 - Show connection, sync, draft-created, and failure states explicitly.
 - Require human review outside the workflow before sending.
 - Block live-provider execution when no secure connection exists; never fall back silently to sample data.
+- Manage credential connections separately from workflow graphs and reference them from nodes by ID.
+- Distinguish `Authentication required`, `Connected`, `Expired`, and `Connection error` states.
+- Test a credential against the provider before marking it connected.
+- Keep local sample input and local draft preview modes available without implying any provider side effect.
 
 ## 12. Agent selection rule
 
@@ -265,7 +273,7 @@ Use an Agent node only when all of these are true:
 ## 13. Product layout
 
 - **Top toolbar:** workflow identity, save state, template, import/export, and workflow test.
-- **Narrow navigation rail:** editor, contextual node picker, executions, new workflow, and theme.
+- **Narrow navigation rail:** editor, contextual node picker, templates, credential connections, executions, new workflow, and theme.
 - **Canvas:** the default and dominant workspace, with nodes, connections, contextual plus controls, minimap, zoom, and runtime states.
 - **Focused node editor:** selected step input data, parameters, and output data in adjacent panes, with step testing and pinned data.
 - **Run detail drawer:** execution log, optional Agent trace, outputs, and errors.
@@ -313,9 +321,10 @@ The MVP is accepted when:
 - A selected step opens input, parameters, and output together; a supported normal step can be tested independently and its output can be pinned.
 - The contextual plus after a node adds and connects the next selected step.
 - Workflow and step tests appear in execution history with status and duration.
-- The default email template runs through five connected steps and ends with a visible “Ready for human review · Not sent” draft.
+- The default email template runs through five connected steps and ends with a visible local draft preview that says no mailbox is connected and nothing was saved or sent.
 - All five prebuilt templates run successfully with the local demo runtime.
-- Selecting an unconnected Gmail or Outlook mailbox produces a clear validation issue rather than a simulated live run.
+- Creating a Gmail or Outlook setup leaves it visibly unauthenticated; selecting it in a node produces a clear validation issue rather than a simulated live run.
+- Connections are managed separately from workflows, and nodes reference credential IDs rather than provider labels.
 - Suggested nodes cover the normal workflow path, while optional Agent nodes are disclosed as an advanced capability.
 - The local demo runtime is visibly identified and cannot be mistaken for a live provider call.
 - A user can connect two compatible nodes by dragging from the source's right port to the target's left port.

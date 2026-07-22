@@ -61,11 +61,24 @@ type NodeConfig = {
   dataName?: string;
   dataMimeType?: DataInput["mimeType"];
   dataContent?: string;
-  mailboxProvider?: "Demo mailbox" | "Gmail" | "Outlook";
+  sourceMode?: "sample" | "connection";
+  deliveryMode?: "preview" | "connection";
+  connectionId?: string;
   emailFrom?: string;
   emailTo?: string;
   emailSubject?: string;
   emailBody?: string;
+};
+
+type ConnectionProvider = "gmail" | "outlook";
+type ConnectionStatus = "needs_auth" | "connected" | "expired" | "error";
+
+type Connection = {
+  id: string;
+  name: string;
+  provider: ConnectionProvider;
+  status: ConnectionStatus;
+  createdAt: string;
 };
 
 type WorkflowNode = {
@@ -136,7 +149,9 @@ type WorkflowTemplate = {
   edges: WorkflowEdge[];
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v7";
+const STORAGE_KEY = "flowcraft-ai-workflow-v9";
+const CONNECTIONS_STORAGE_KEY = "flowcraft-connections-v1";
+const LIVE_EMAIL_CONNECTORS_ENABLED = false;
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 const recommendedNodeTypes = new Set([
@@ -161,7 +176,7 @@ const catalog: CatalogItem[] = [
     description: "Start when a mailbox receives an email",
     mark: "@",
     config: {
-      mailboxProvider: "Demo mailbox",
+      sourceMode: "sample",
       emailFrom: "maya@northstar.example",
       emailTo: "support@flowcraft.example",
       emailSubject: "Unable to access our workspace",
@@ -277,7 +292,7 @@ const catalog: CatalogItem[] = [
   { type: "markdown-output", name: "Markdown output", category: "Output", description: "Render formatted content", mark: "MD", config: { format: "Markdown" } },
   { type: "json-output", name: "JSON output", category: "Output", description: "Return machine-ready JSON", mark: "J", config: { format: "JSON" } },
   { type: "download-output", name: "Download", category: "Output", description: "Create a downloadable file", mark: "↓", config: { format: "TXT" } },
-  { type: "email-draft", name: "Save email draft", category: "Output", description: "Create a reviewable mailbox draft", mark: "✉", config: { mailboxProvider: "Demo mailbox", emailTo: "maya@northstar.example", format: "Email draft" } },
+  { type: "email-draft", name: "Email draft", category: "Output", description: "Preview locally or create with a connection", mark: "✉", config: { deliveryMode: "preview", emailTo: "maya@northstar.example", format: "Email draft" } },
 ];
 
 const initialNodes: WorkflowNode[] = [
@@ -291,7 +306,7 @@ const initialNodes: WorkflowNode[] = [
     y: 184,
     status: "idle",
     config: {
-      mailboxProvider: "Demo mailbox",
+      sourceMode: "sample",
       emailFrom: "maya@northstar.example",
       emailTo: "support@flowcraft.example",
       emailSubject: "Unable to access our workspace",
@@ -342,12 +357,12 @@ const initialNodes: WorkflowNode[] = [
     id: "email-out",
     type: "email-draft",
     category: "Output",
-    name: "Save draft",
-    description: "Save for human review — never auto-send",
+    name: "Preview draft",
+    description: "Inspect locally — nothing is saved or sent",
     x: 1028,
     y: 184,
     status: "idle",
-    config: { mailboxProvider: "Demo mailbox", emailTo: "maya@northstar.example", format: "Email draft" },
+    config: { deliveryMode: "preview", emailTo: "maya@northstar.example", format: "Email draft" },
   },
 ];
 
@@ -411,7 +426,7 @@ const documentEdges: WorkflowEdge[] = [
 ];
 
 const workflowTemplates: WorkflowTemplate[] = [
-  { id: "email", name: "Inbox triage & draft reply", shortName: "Email drafting", outcome: "Turn a new inbox message into a grounded, reviewable draft", description: "Classify urgency, retrieve approved context, draft a reply, and save it without auto-sending.", category: "Customer operations", mark: "@", accent: "#ff6d5a", nodes: initialNodes, edges: initialEdges },
+  { id: "email", name: "Inbox triage & draft reply", shortName: "Email drafting", outcome: "Turn a sample email into a grounded draft preview", description: "Classify urgency, retrieve approved context, and preview a reply locally. Connect a mailbox before creating a real draft.", category: "Customer operations", mark: "@", accent: "#ff6d5a", nodes: initialNodes, edges: initialEdges },
   { id: "support", name: "Customer support answer", shortName: "Support reply", outcome: "Answer a customer question consistently", description: "Apply a reusable support prompt and return a clear response.", category: "Customer support", mark: "CS", accent: "#5c6ac4", nodes: supportNodes, edges: supportEdges },
   { id: "meeting", name: "Meeting notes & actions", shortName: "Meeting notes", outcome: "Convert discussion into decisions, owners, and deadlines", description: "Summarize a transcript and publish a clean action list.", category: "Team productivity", mark: "MN", accent: "#2f9e78", nodes: meetingNodes, edges: meetingEdges },
   { id: "lead", name: "Lead qualification", shortName: "Lead scoring", outcome: "Score an inbound lead and prepare a structured handoff", description: "Evaluate fit, recommend the next action, and return CRM-ready JSON.", category: "Sales", mark: "LQ", accent: "#9b59c4", nodes: leadNodes, edges: leadEdges },
@@ -465,6 +480,17 @@ function statusLabel(status: NodeStatus) {
   return "Ready";
 }
 
+function providerLabel(provider: ConnectionProvider) {
+  return provider === "gmail" ? "Gmail" : "Microsoft Outlook";
+}
+
+function connectionStatusLabel(status: ConnectionStatus) {
+  if (status === "connected") return "Connected";
+  if (status === "expired") return "Expired";
+  if (status === "error") return "Connection error";
+  return "Authentication required";
+}
+
 function phaseToNodeStatus(phase: AgentPhase): NodeStatus {
   return phase;
 }
@@ -494,7 +520,13 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [libraryView, setLibraryView] = useState<"recommended" | "all">("recommended");
   const [showAdvancedNodes, setShowAdvancedNodes] = useState(false);
-  const [sidePanel, setSidePanel] = useState<"nodes" | "templates" | "executions" | null>(null);
+  const [sidePanel, setSidePanel] = useState<"nodes" | "templates" | "connections" | "executions" | null>(null);
+  const [connections, setConnections] = useState<Connection[]>([]);
+  const [showConnectionForm, setShowConnectionForm] = useState(false);
+  const [connectionDraft, setConnectionDraft] = useState<{ name: string; provider: ConnectionProvider }>({
+    name: "My Gmail",
+    provider: "gmail",
+  });
   const [addAfterId, setAddAfterId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.82);
   const [pan, setPan] = useState({ x: 18, y: 66 });
@@ -502,7 +534,7 @@ export default function Home() {
   const [connectionPointer, setConnectionPointer] = useState<{ x: number; y: number } | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Flagship demo ready: new email → triage → context → draft → review." },
+    { id: "ready", time: "Ready", level: "info", message: "Flagship demo ready: sample email → triage → context → draft preview." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(false);
@@ -554,19 +586,42 @@ export default function Home() {
     const hydrationTimer = window.setTimeout(() => {
       try {
         const stored = window.localStorage.getItem(STORAGE_KEY);
+        const storedConnections = window.localStorage.getItem(CONNECTIONS_STORAGE_KEY);
         const storedTheme = window.localStorage.getItem(`${STORAGE_KEY}-theme`);
         if (stored) {
           const parsed = JSON.parse(stored) as Snapshot & { name?: string; templateId?: string | null };
           if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
-            setNodes(parsed.nodes);
+            const migratedNodes = parsed.nodes.map((node) => {
+              const legacyConfig = node.config as NodeConfig & { mailboxProvider?: string };
+              if (node.type === "email-trigger" && legacyConfig.mailboxProvider) {
+                const { mailboxProvider, ...config } = legacyConfig;
+                return { ...node, config: { ...config, sourceMode: mailboxProvider === "Demo mailbox" ? "sample" : "connection", connectionId: undefined } as NodeConfig };
+              }
+              if (node.type === "email-draft" && (legacyConfig.mailboxProvider || node.name === "Save draft")) {
+                const { mailboxProvider, ...config } = legacyConfig;
+                const isLegacyDemo = !mailboxProvider || mailboxProvider === "Demo mailbox";
+                return {
+                  ...node,
+                  name: isLegacyDemo ? "Preview draft" : node.name,
+                  description: isLegacyDemo ? "Inspect locally — nothing is saved or sent" : node.description,
+                  config: { ...config, deliveryMode: isLegacyDemo ? "preview" : "connection", connectionId: undefined } as NodeConfig,
+                };
+              }
+              return node;
+            });
+            setNodes(migratedNodes);
             setEdges(parsed.edges);
             if (parsed.name) setWorkflowName(parsed.name);
             const matchingTemplate = workflowTemplates.find((template) =>
-              template.nodes.length === parsed.nodes.length &&
-              template.nodes.every((templateNode) => parsed.nodes.some((node) => node.id === templateNode.id)),
+              template.nodes.length === migratedNodes.length &&
+              template.nodes.every((templateNode) => migratedNodes.some((node) => node.id === templateNode.id)),
             );
             setCurrentTemplateId(matchingTemplate?.id ?? null);
           }
+        }
+        if (storedConnections) {
+          const parsedConnections = JSON.parse(storedConnections) as Connection[];
+          if (Array.isArray(parsedConnections)) setConnections(parsedConnections);
         }
         setDarkMode(storedTheme === "dark");
       } catch {
@@ -586,6 +641,11 @@ export default function Home() {
     if (!hydratedRef.current) return;
     window.localStorage.setItem(`${STORAGE_KEY}-theme`, darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    window.localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(connections));
+  }, [connections]);
 
   useEffect(() => {
     if (!dragging && !panning) return;
@@ -643,6 +703,37 @@ export default function Home() {
       { ...entry, id: `${Date.now()}-${Math.random()}`, time: nowLabel() },
     ]);
   }, []);
+
+  const saveConnectionSetup = () => {
+    const name = connectionDraft.name.trim();
+    if (!name) {
+      showToast("Give this connection a name");
+      return;
+    }
+    setConnections((current) => [
+      ...current,
+      {
+        id: `connection-${Date.now()}`,
+        name,
+        provider: connectionDraft.provider,
+        status: "needs_auth",
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setShowConnectionForm(false);
+    setConnectionDraft({ name: "My Gmail", provider: "gmail" });
+    showToast("Connection setup saved — authentication is still required");
+  };
+
+  const removeConnection = (id: string) => {
+    const usageCount = nodes.filter((node) => node.config.connectionId === id).length;
+    if (usageCount) {
+      showToast(`This connection is used by ${usageCount} workflow ${usageCount === 1 ? "step" : "steps"}`);
+      return;
+    }
+    setConnections((current) => current.filter((connection) => connection.id !== id));
+    showToast("Connection setup removed");
+  };
 
   const filteredCatalog = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -954,17 +1045,24 @@ export default function Home() {
       }
       if (node.type === "text-input" && !node.config.value?.trim()) issues.push(`${node.name} is missing text.`);
       if (node.type === "email-trigger") {
-        if (!node.config.emailFrom?.trim() || !node.config.emailSubject?.trim() || !node.config.emailBody?.trim()) {
+        const sourceMode = node.config.sourceMode ?? "sample";
+        if (sourceMode === "sample" && (!node.config.emailFrom?.trim() || !node.config.emailSubject?.trim() || !node.config.emailBody?.trim())) {
           issues.push(`${node.name} needs a sender, subject, and message body.`);
         }
-        if (node.config.mailboxProvider !== "Demo mailbox") {
-          issues.push(`${node.name} uses ${node.config.mailboxProvider}, but that mailbox is not connected yet. Choose Demo mailbox to test locally.`);
+        if (sourceMode === "connection") {
+          const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
+          if (!connection) issues.push(`${node.name} needs a mailbox connection.`);
+          else if (connection.status !== "connected") issues.push(`${node.name} cannot use ${connection.name}: ${connectionStatusLabel(connection.status).toLowerCase()}.`);
+          else if (!LIVE_EMAIL_CONNECTORS_ENABLED) issues.push(`${node.name} cannot run live because the email connector backend is not configured on this localhost.`);
         }
       }
       if (node.type === "email-draft") {
         if (!node.config.emailTo?.trim()) issues.push(`${node.name} needs a recipient.`);
-        if (node.config.mailboxProvider !== "Demo mailbox") {
-          issues.push(`${node.name} uses ${node.config.mailboxProvider}, but that mailbox is not connected yet. Choose Demo mailbox to test locally.`);
+        if ((node.config.deliveryMode ?? "preview") === "connection") {
+          const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
+          if (!connection) issues.push(`${node.name} needs a mailbox connection.`);
+          else if (connection.status !== "connected") issues.push(`${node.name} cannot use ${connection.name}: ${connectionStatusLabel(connection.status).toLowerCase()}.`);
+          else if (!LIVE_EMAIL_CONNECTORS_ENABLED) issues.push(`${node.name} cannot run live because the email connector backend is not configured on this localhost.`);
         }
       }
       if (node.type === "file-upload" && !node.config.documentContent?.trim()) {
@@ -1043,7 +1141,7 @@ export default function Home() {
     nodes.forEach((node) => visit(node.id));
     if (hasCycle) issues.push("The workflow contains a circular dependency.");
     return [...new Set(issues)];
-  }, [edges, nodes]);
+  }, [connections, edges, nodes]);
 
   const computeOutput = (node: WorkflowNode, inputs: string[]) => {
     const input = inputs.filter(Boolean).join("\n\n");
@@ -1096,7 +1194,7 @@ export default function Home() {
       case "merge":
         return input;
       case "email-draft":
-        return `Draft saved to ${node.config.mailboxProvider || "Demo mailbox"} for ${node.config.emailTo}.\n\n${input}\n\nStatus: Ready for human review · Not sent`;
+        return `LOCAL DRAFT PREVIEW\nRecipient: ${node.config.emailTo}\n\n${input}\n\nStatus: Preview only · No mailbox connected · Nothing saved or sent`;
       default:
         return input || `${node.name} completed`;
     }
@@ -1114,9 +1212,19 @@ export default function Home() {
       showToast(`Connect ${node.config.provider} or choose Demo runtime first`);
       return;
     }
-    if (["email-trigger", "email-draft"].includes(node.type) && node.config.mailboxProvider !== "Demo mailbox") {
-      showToast(`Connect ${node.config.mailboxProvider} or choose Demo mailbox first`);
-      return;
+    if (node.type === "email-trigger" && (node.config.sourceMode ?? "sample") === "connection") {
+      const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
+      if (!connection || connection.status !== "connected" || !LIVE_EMAIL_CONNECTORS_ENABLED) {
+        showToast("Choose an authenticated mailbox connection first");
+        return;
+      }
+    }
+    if (node.type === "email-draft" && (node.config.deliveryMode ?? "preview") === "connection") {
+      const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
+      if (!connection || connection.status !== "connected" || !LIVE_EMAIL_CONNECTORS_ENABLED) {
+        showToast("Choose an authenticated mailbox connection first");
+        return;
+      }
     }
 
     const started = performance.now();
@@ -1570,6 +1678,7 @@ export default function Home() {
         <button className={!sidePanel ? "active" : ""} onClick={() => setSidePanel(null)} title="Editor"><span>◇</span><small>Editor</small></button>
         <button className={sidePanel === "nodes" ? "active" : ""} onClick={() => { setAddAfterId(null); setSidePanel((panel) => panel === "nodes" ? null : "nodes"); }} title="Add node"><span>＋</span><small>Nodes</small></button>
         <button className={sidePanel === "templates" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "templates" ? null : "templates")} title="Workflow templates"><span>▦</span><small>Demos</small></button>
+        <button className={sidePanel === "connections" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "connections" ? null : "connections")} title="Connections"><span>⌁</span><small>Connect</small></button>
         <button className={sidePanel === "executions" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "executions" ? null : "executions")} title="Executions"><span>≡</span><small>Runs</small></button>
         <div className="rail-spacer" />
         <button onClick={newWorkflow} title="New workflow"><span>□</span><small>New</small></button>
@@ -1692,6 +1801,38 @@ export default function Home() {
           </div>
         </aside>}
 
+        {sidePanel === "connections" && <aside className="connections-panel floating-panel" aria-label="Connections">
+          <div className="panel-heading library-heading">
+            <div><span className="eyebrow">CREDENTIALS</span><h2>Connections</h2></div>
+            <button className="mini-button" onClick={() => setSidePanel(null)} aria-label="Close connections">×</button>
+          </div>
+          <p className="connections-intro">Connections live separately from workflows. Email nodes reference one by ID and can run live only after real OAuth authentication succeeds.</p>
+          <div className="connection-truth"><span>i</span><div><strong>No mailbox is connected by default</strong><p>Sample data is not a credential. Flowcraft stores setup metadata here, never access tokens in browser storage.</p></div></div>
+          {!showConnectionForm && <button className="add-connection-button" onClick={() => setShowConnectionForm(true)}>＋ Add connection</button>}
+          {showConnectionForm && <div className="connection-form">
+            <div className="form-section-title"><span>New email connection</span><button onClick={() => setShowConnectionForm(false)} aria-label="Cancel connection setup">×</button></div>
+            <label className="field-label">Provider<select value={connectionDraft.provider} onChange={(event) => {
+              const provider = event.target.value as ConnectionProvider;
+              setConnectionDraft({ provider, name: provider === "gmail" ? "My Gmail" : "My Outlook" });
+            }}><option value="gmail">Gmail</option><option value="outlook">Microsoft Outlook</option></select></label>
+            <label className="field-label">Connection name<input value={connectionDraft.name} onChange={(event) => setConnectionDraft((current) => ({ ...current, name: event.target.value }))} /></label>
+            <div className="permission-list"><strong>Requested access</strong><span>✓ Read selected inbox messages</span><span>✓ Create email drafts</span><span className="permission-denied">× Sending is not requested</span></div>
+            <div className="oauth-note"><strong>OAuth app setup required</strong><p>This localhost still needs a provider Client ID, Client Secret, callback endpoint, and encrypted server-side token storage before authentication can begin.</p></div>
+            <button className="save-connection-button" onClick={saveConnectionSetup}>Save connection setup</button>
+          </div>}
+          <div className="connection-list">
+            {connections.map((connection) => {
+              const usageCount = nodes.filter((node) => node.config.connectionId === connection.id).length;
+              return <article className="connection-card" key={connection.id}>
+                <div className={`connection-provider provider-${connection.provider}`}>{connection.provider === "gmail" ? "G" : "O"}</div>
+                <div className="connection-copy"><strong>{connection.name}</strong><span>{providerLabel(connection.provider)} · OAuth 2.0</span><b className={`connection-status status-${connection.status}`}><i />{connectionStatusLabel(connection.status)}</b></div>
+                <div className="connection-actions"><button onClick={() => showToast("Authentication is unavailable until the OAuth backend is configured")}>Authenticate</button><button onClick={() => removeConnection(connection.id)} disabled={usageCount > 0} title={usageCount ? `Used by ${usageCount} workflow steps` : "Remove connection"}>×</button></div>
+              </article>;
+            })}
+            {!connections.length && !showConnectionForm && <div className="connection-empty"><span>⌁</span><strong>No connection setups</strong><p>Add Gmail or Outlook. It will remain clearly marked “Authentication required” until OAuth actually completes.</p></div>}
+          </div>
+        </aside>}
+
         {sidePanel === "executions" && <aside className="executions-panel floating-panel" aria-label="Execution history">
           <div className="panel-heading library-heading">
             <div><span className="eyebrow">WORKFLOW RUNS</span><h2>Executions</h2></div>
@@ -1720,7 +1861,7 @@ export default function Home() {
               <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
             </div>
             <div className="canvas-meta">
-              <span className="runtime-pill" title="AI and mailbox actions use safe local samples until secure providers are connected"><span /> {currentTemplateId === "email" ? "Local AI · Demo mailbox" : "Local demo"}</span>
+              <span className="runtime-pill" title="Local samples and previews never touch an external account"><span /> {currentTemplateId === "email" ? "Local AI · Preview only" : "Local demo"}</span>
               <span className={`health-pill ${graphIssues.length ? "has-errors" : ""}`}>
                 <span /> {graphIssues.length ? `${graphIssues.length} ${graphIssues.length === 1 ? "issue" : "issues"}` : "Graph healthy"}
               </span>
@@ -1841,7 +1982,7 @@ export default function Home() {
                       ) : node.type === "email-trigger" ? (
                         <p>{node.config.emailSubject}</p>
                       ) : node.type === "email-draft" ? (
-                        <><span>{node.config.mailboxProvider}</span><span>Review first</span></>
+                        <><span>{(node.config.deliveryMode ?? "preview") === "preview" ? "Preview only" : connections.find((connection) => connection.id === node.config.connectionId)?.name ?? "No connection"}</span><span>Review first</span></>
                       ) : ["text-input", "file-upload", "data-input"].includes(node.type) ? (
                         <p>{node.config.value}</p>
                       ) : node.category === "Agent" ? (
@@ -1862,8 +2003,10 @@ export default function Home() {
                             ? `${node.config.allowedTools?.length ?? 0} tools · ${node.config.maxSteps ?? 0} steps`
                             : node.type === "llm"
                               ? "Local demo"
-                              : node.type === "email-draft" || node.type === "email-trigger"
-                                ? node.config.mailboxProvider
+                            : node.type === "email-trigger"
+                              ? (node.config.sourceMode ?? "sample") === "sample" ? "Sample email" : connections.find((connection) => connection.id === node.config.connectionId)?.name ?? "Needs connection"
+                              : node.type === "email-draft"
+                                ? (node.config.deliveryMode ?? "preview") === "preview" ? "Local preview" : connections.find((connection) => connection.id === node.config.connectionId)?.name ?? "Needs connection"
                               : "Configured"}
                       </span>
                       <button className="node-delete" onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`} title={`Delete ${node.name}`}>×</button>
@@ -1982,28 +2125,32 @@ export default function Home() {
                 {selectedNode.type === "email-trigger" && (
                   <div className="form-section email-form-section">
                     <div className="form-section-title"><span>Email source</span><span className="required-label">Required</span></div>
-                    <div className={`runtime-notice ${selectedNode.config.mailboxProvider === "Demo mailbox" ? "is-local" : "needs-connection"}`}>
-                      <span>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "✓" : "!"}</span>
-                      <div><strong>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Safe demo mailbox" : `${selectedNode.config.mailboxProvider} connection required`}</strong><p>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Uses the included sample email and never touches a real inbox." : "Live inbox access stays blocked until secure OAuth is configured."}</p></div>
-                    </div>
-                    <label className="field-label">Mailbox<select value={selectedNode.config.mailboxProvider ?? "Demo mailbox"} onChange={(event) => updateConfig("mailboxProvider", event.target.value)}><option>Demo mailbox</option><option>Gmail</option><option>Outlook</option></select></label>
-                    <label className="field-label">From<input value={selectedNode.config.emailFrom ?? ""} onChange={(event) => updateConfig("emailFrom", event.target.value)} /></label>
-                    <label className="field-label">To<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>
-                    <label className="field-label">Subject<input value={selectedNode.config.emailSubject ?? ""} onChange={(event) => updateConfig("emailSubject", event.target.value)} /></label>
-                    <label className="field-label">Sample message<textarea rows={7} value={selectedNode.config.emailBody ?? ""} onChange={(event) => updateConfig("emailBody", event.target.value)} /></label>
+                    <div className="mode-switch" role="group" aria-label="Email source mode"><button className={(selectedNode.config.sourceMode ?? "sample") === "sample" ? "active" : ""} onClick={() => updateConfig("sourceMode", "sample")}>Sample data</button><button className={selectedNode.config.sourceMode === "connection" ? "active" : ""} onClick={() => updateConfig("sourceMode", "connection")}>Mailbox connection</button></div>
+                    {(selectedNode.config.sourceMode ?? "sample") === "sample" ? <>
+                      <div className="runtime-notice is-local"><span>i</span><div><strong>Local sample — not a mailbox</strong><p>This message is editable test data. It does not read your inbox or prove any account is connected.</p></div></div>
+                      <label className="field-label">From<input value={selectedNode.config.emailFrom ?? ""} onChange={(event) => updateConfig("emailFrom", event.target.value)} /></label>
+                      <label className="field-label">To<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>
+                      <label className="field-label">Subject<input value={selectedNode.config.emailSubject ?? ""} onChange={(event) => updateConfig("emailSubject", event.target.value)} /></label>
+                      <label className="field-label">Sample message<textarea rows={7} value={selectedNode.config.emailBody ?? ""} onChange={(event) => updateConfig("emailBody", event.target.value)} /></label>
+                    </> : <>
+                      <div className="runtime-notice needs-connection"><span>!</span><div><strong>Authenticated connection required</strong><p>A saved setup is not enough. The graph stays blocked until OAuth succeeds and the connector passes a real test.</p></div></div>
+                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select a connection</option>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
+                      <button className="manage-connections-button" onClick={() => { setSelectedId(""); setSidePanel("connections"); }}>Manage connections</button>
+                    </>}
                   </div>
                 )}
 
                 {selectedNode.type === "email-draft" && (
                   <div className="form-section email-form-section">
                     <div className="form-section-title"><span>Draft destination</span><span>Review required</span></div>
-                    <div className={`runtime-notice ${selectedNode.config.mailboxProvider === "Demo mailbox" ? "is-local" : "needs-connection"}`}>
-                      <span>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "✓" : "!"}</span>
-                      <div><strong>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Local draft only" : `${selectedNode.config.mailboxProvider} connection required`}</strong><p>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Creates an inspectable result without sending anything." : "The workflow may create a draft after OAuth, but sending remains a separate human action."}</p></div>
-                    </div>
-                    <label className="field-label">Mailbox<select value={selectedNode.config.mailboxProvider ?? "Demo mailbox"} onChange={(event) => updateConfig("mailboxProvider", event.target.value)}><option>Demo mailbox</option><option>Gmail</option><option>Outlook</option></select></label>
+                    <div className="mode-switch" role="group" aria-label="Draft destination mode"><button className={(selectedNode.config.deliveryMode ?? "preview") === "preview" ? "active" : ""} onClick={() => updateConfig("deliveryMode", "preview")}>Preview only</button><button className={selectedNode.config.deliveryMode === "connection" ? "active" : ""} onClick={() => updateConfig("deliveryMode", "connection")}>Create in mailbox</button></div>
+                    {(selectedNode.config.deliveryMode ?? "preview") === "preview" ? <div className="runtime-notice is-local"><span>i</span><div><strong>Local preview only</strong><p>The result is shown inside Flowcraft. Nothing is saved to a provider and nothing is sent.</p></div></div> : <>
+                      <div className="runtime-notice needs-connection"><span>!</span><div><strong>Authenticated connection required</strong><p>Creating a provider draft is a real side effect. Execution stays blocked until OAuth and a connector test succeed.</p></div></div>
+                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select a connection</option>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
+                      <button className="manage-connections-button" onClick={() => { setSelectedId(""); setSidePanel("connections"); }}>Manage connections</button>
+                    </>}
                     <label className="field-label">Draft recipient<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>
-                    <div className="safety-contract"><span>✓</span><div><strong>Human-in-the-loop boundary</strong><p>This node creates a draft. It never sends an email automatically.</p></div></div>
+                    <div className="safety-contract"><span>✓</span><div><strong>Human-in-the-loop boundary</strong><p>Preview mode has no external side effect. Live mode may create a draft only; sending remains a separate human action.</p></div></div>
                   </div>
                 )}
 

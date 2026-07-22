@@ -1535,7 +1535,57 @@ textarea:focus-visible {
 .safety-contract strong { display: block; color: var(--green); font-size: 9.5px; }
 .safety-contract p { margin: 3px 0 0; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
 
+/* Connections are first-class resources, separate from workflow nodes. */
+.connections-panel { width: 420px; overflow: hidden; }
+.connections-intro { margin: -2px 18px 12px; color: var(--muted); font-size: 10.5px; line-height: 1.55; }
+.connection-truth { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; margin: 0 16px 12px; padding: 11px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 9px; background: color-mix(in srgb, var(--accent-soft) 38%, var(--panel)); }
+.connection-truth > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: white; font-size: 9px; font-weight: 900; }
+.connection-truth strong { font-size: 10px; }
+.connection-truth p { margin: 3px 0 0; color: var(--muted); font-size: 8.7px; line-height: 1.45; }
+.add-connection-button,
+.save-connection-button,
+.manage-connections-button { border: 0; border-radius: 8px; background: var(--accent); color: white; cursor: pointer; font-size: 9px; font-weight: 850; }
+.add-connection-button { margin: 0 16px 14px; padding: 9px 11px; }
+.connection-form { margin: 0 16px 14px; padding: 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); }
+.connection-form .form-section-title { margin-bottom: 11px; }
+.connection-form .form-section-title button { border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.permission-list { display: grid; gap: 6px; margin: 10px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.permission-list strong { margin-bottom: 2px; font-size: 9px; }
+.permission-list span { color: var(--green); font-size: 8.5px; }
+.permission-list .permission-denied { color: var(--muted); }
+.oauth-note { padding: 10px; border: 1px solid #e7c975; border-radius: 8px; background: #fff9e8; }
+.theme-dark .oauth-note { background: #302b1e; }
+.oauth-note strong { color: #8a6700; font-size: 9px; }
+.oauth-note p { margin: 3px 0 0; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
+.save-connection-button { margin-top: 10px; padding: 9px 11px; }
+.connection-list { flex: 1; overflow: auto; padding: 0 12px 20px; }
+.connection-card { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 12px 6px; border-bottom: 1px solid var(--line); }
+.connection-provider { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: white; font-size: 12px; font-weight: 900; }
+.provider-gmail { background: #d84d3f; }
+.provider-outlook { background: #2878c8; }
+.connection-copy { min-width: 0; display: grid; gap: 3px; }
+.connection-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.connection-copy > span { color: var(--muted); font-size: 8.5px; }
+.connection-status { width: max-content; display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; color: #8a6700; font-size: 7.5px; text-transform: uppercase; letter-spacing: .04em; }
+.connection-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.connection-status.status-connected { color: var(--green); }
+.connection-status.status-error,
+.connection-status.status-expired { color: var(--red); }
+.connection-actions { display: flex; align-items: center; gap: 5px; }
+.connection-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 6px 7px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 8px; font-weight: 800; }
+.connection-actions button:disabled { opacity: .42; cursor: not-allowed; }
+.connection-empty { display: grid; place-items: center; padding: 34px 20px; text-align: center; }
+.connection-empty > span { width: 40px; height: 40px; display: grid; place-items: center; margin-bottom: 10px; border-radius: 12px; background: var(--soft); color: var(--muted); }
+.connection-empty strong { font-size: 11px; }
+.connection-empty p { max-width: 270px; margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+
+.mode-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 11px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); }
+.mode-switch button { border: 0; border-radius: 6px; padding: 7px; background: transparent; color: var(--muted); cursor: pointer; font-size: 8.5px; font-weight: 800; }
+.mode-switch button.active { background: var(--panel); color: var(--ink); box-shadow: 0 1px 4px rgba(24, 24, 27, .09); }
+.manage-connections-button { margin-bottom: 10px; padding: 8px 10px; background: var(--ink); color: var(--panel); }
+
 @media (max-width: 960px) {
   .workflow-guide { width: 330px; }
   .templates-panel { width: 370px; }
+  .connections-panel { width: 390px; }
 }

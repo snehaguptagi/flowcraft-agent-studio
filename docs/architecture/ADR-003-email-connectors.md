@@ -21,12 +21,14 @@ The initial permission boundary is:
 
 Every provider run will preserve the provider message ID as an idempotency key. A repeated event must update or reuse the existing workflow run rather than create duplicate drafts.
 
-The workflow ends at **Save draft**. The resulting email remains in the provider for human review and manual sending.
+The local workflow ends at **Preview draft** and has no external side effect. A live workflow may end at **Create provider draft** only when the referenced credential is authenticated and the connector is operational. The resulting email remains in the provider for human review and manual sending.
+
+Credentials are first-class resources stored separately from workflow graphs. Nodes reference a credential ID; they never carry tokens or treat a provider label as proof of authentication. Saving connection metadata does not mark a credential connected. The server must complete OAuth and test the provider before assigning `connected` status.
 
 ## Product states
 
-- **Demo mailbox:** local, deterministic, and clearly labeled.
-- **Provider selected but not connected:** execution blocked with a setup message.
+- **Sample input / preview output:** local, deterministic, and explicitly not a mailbox connection.
+- **Setup saved but not authenticated:** `Authentication required`; execution blocked.
 - **Connected:** last sync time, account identity, granted scopes, and draft result are visible.
 - **Expired or revoked:** execution blocked until reconnection.
 

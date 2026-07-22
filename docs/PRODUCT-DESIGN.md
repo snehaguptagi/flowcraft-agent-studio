@@ -13,7 +13,7 @@ Logic, retrieval, structured output, and data transformations can be added as ex
 ## Main screen
 
 - **Top bar:** workflow name, autosave state, demo template, import/export, and workflow test.
-- **Narrow rail:** editor, nodes, executions, new workflow, and theme.
+- **Narrow rail:** editor, nodes, templates, credential connections, executions, new workflow, and theme.
 - **Canvas:** the dominant default view, with draggable nodes, visible connections, contextual plus controls, minimap, and zoom.
 - **Contextual node picker:** opens over the canvas only while a user is adding a step.
 - **Focused node editor:** incoming data, editable parameters, and returned output sit together for the selected node.
@@ -66,9 +66,9 @@ The editor follows product patterns verified in n8n’s official [feature overvi
 
 The default demo is now **Inbox triage & draft reply**:
 
-`New email → Triage email → Find policy context → Draft reply → Save draft`
+`Sample email → Triage email → Find policy context → Draft reply → Preview draft`
 
-The final step creates an inspectable draft with a recipient, subject, body, and explicit **Not sent** status. This is the right first email automation because it demonstrates useful end-to-end work while preserving human control over external communication.
+The final step creates an inspectable local preview with a recipient, subject, body, and explicit **No mailbox connected · Nothing saved or sent** status. This is the honest runnable demo. A separate live mode may create a provider draft only after a real credential has authenticated and passed a connection test.
 
 ## Template system
 
@@ -82,10 +82,13 @@ Flowcraft includes five runnable starting points:
 
 Every template communicates its outcome before its mechanics. The gallery shows the category, intended result, description, and number of connected steps. Loading a template replaces the current canvas with a configured local workflow; it never implies that a cloud provider is connected.
 
-## Email connection states
+## Email credential model
 
-- **Demo mailbox:** connected locally, uses the included sample, and never accesses a real account.
-- **Gmail / Outlook not connected:** visible warning and blocked execution.
-- **Connected provider:** future server-backed OAuth state with minimum read-and-draft permissions.
+- Credentials live separately from workflow graphs; email nodes reference a credential ID.
+- A user may create a Gmail or Outlook setup record, but it remains **Authentication required** until OAuth completes.
+- **Sample email:** editable local test data, never described as a mailbox or credential.
+- **Preview draft:** local output with no provider side effect.
+- **Connected provider:** future server-backed OAuth state with minimum read-and-draft permissions and a successful provider test.
+- **Expired / error:** visible warning and blocked execution.
 
-Sending remains outside the workflow. The product may prepare and save a draft, but a human must review and send it in the email provider.
+Sending remains outside the workflow. After the live connector exists, the product may prepare and save a draft, but a human must review and send it in the email provider.

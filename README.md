@@ -10,7 +10,8 @@ Retrieval, classification, translation, logic, and structured-output nodes can b
 
 ## What is built
 
-- Flagship **Inbox triage & draft reply** workflow: new email → triage → policy context → drafted reply → reviewable draft
+- Flagship **Inbox triage & draft reply** workflow: sample email → triage → policy context → drafted reply → local preview
+- First-class **Connections** area with Gmail and Outlook setup records, explicit authentication states, node-level credential selection, and blocked live execution until OAuth is real
 - Five complete local templates: Email drafting, Customer support, Meeting notes, Lead qualification, and Document Q&A
 - Template gallery with outcomes, categories, connected-step counts, and one-click loading
 - Guided outcome card that explains what the current template does and how to run it
@@ -45,7 +46,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The canvas and deterministic local workflow demonstration work without environment variables.
 
-The default workflow turns a realistic customer email into a grounded reply and saves it to a clearly labeled **Demo mailbox** for human review. Press **Run this demo** or **Test workflow**, then select **Save draft** to inspect the exact subject, body, recipient, and “Not sent” status.
+The default workflow turns editable sample email data into a grounded **local draft preview**. Press **Run this demo** or **Test workflow**, then select **Preview draft** to inspect the recipient and content. The result explicitly says **No mailbox connected · Nothing saved or sent**.
 
 Open **Templates** to switch between five complete examples. To build manually, drag the right port of a source node onto the left port of a target node, or click the small **+** after a node to choose and auto-connect the next step. Select a connection to delete it.
 
@@ -53,7 +54,7 @@ The editor is canvas-first: the node picker opens only when needed, and selectin
 
 The included **Demo runtime** produces a clearly labeled deterministic AI sample. Selecting OpenAI, Gemini, or Claude intentionally blocks local execution until a secure backend provider connection is configured; the UI does not pretend that a live model call happened.
 
-The email nodes follow the same rule. **Demo mailbox** runs locally. Selecting Gmail or Outlook visibly blocks execution until secure OAuth is configured. The intended live permission boundary is inbox reading plus draft creation only; Flowcraft must never send an email automatically.
+Email connections follow n8n’s credential pattern: connections exist separately from workflows, and email nodes select a connection by ID. Open **Connect** to create a Gmail or Outlook setup record. A saved setup remains **Authentication required** and live execution stays blocked until a server-side OAuth callback, encrypted token storage, and a real connection test are implemented. Sample email data is never presented as a connected mailbox. The intended live permission boundary is inbox reading plus draft creation only; Flowcraft must never send an email automatically.
 
 ### Optional Agent-node service
 
