@@ -292,12 +292,14 @@ Use an Agent node only when all of these are true:
 ### Frontend
 
 - React 19 and TypeScript
-- vinext and Vite
+- Next.js-compatible React app with Vercel production deployment support
+- vinext and Vite for the existing Cloudflare/OpenAI Sites path
 - Custom visual graph canvas
 - Browser local storage for device-local drafts
-- Cloudflare D1 for server-side connection metadata and OAuth state
+- Server-side connection vault for provider connection metadata and OAuth state
+- Cloudflare D1 for the current Sites vault implementation; Vercel production requires a Vercel-compatible persistent store before live OAuth is enabled
 - Server-side OAuth routes for provider authentication, provider tests, and live email actions
-- Cloudflare-compatible build output
+- Vercel build output for public product hosting, with Cloudflare-compatible output retained as an optional host
 
 The frontend is the core product and must run independently at `http://localhost:3000`.
 
@@ -365,7 +367,7 @@ The MVP is accepted when:
 ### Next
 
 - Real server-backed model execution for standard AI nodes
-- Provider environment configuration for the first production OAuth connection
+- Vercel-compatible persistent connection store and provider environment configuration for the first production OAuth connection
 - Typed ports and connection compatibility
 - Template persistence and user-authored template sharing
 - Secure connector abstractions

@@ -12,7 +12,7 @@ import {
 } from "./integrations";
 
 type RuntimeEnv = {
-  DB?: D1Database;
+  DB?: Parameters<typeof drizzle>[0];
   CONNECTION_ENCRYPTION_KEY?: string;
   GMAIL_CLIENT_ID?: string;
   GMAIL_CLIENT_SECRET?: string;
@@ -119,15 +119,21 @@ const oauthConfigs: Record<Exclude<ConnectionProvider, "webhook">, OAuthConfig> 
 };
 
 async function getRuntimeEnv() {
-  const workers = await import("cloudflare:workers");
-  return workers.env as unknown as RuntimeEnv;
+  try {
+    const importer = new Function("specifier", "return import(specifier)") as (
+      specifier: string,
+    ) => Promise<{ env: RuntimeEnv }>;
+    return (await importer("cloudflare:workers")).env as RuntimeEnv;
+  } catch {
+    return process.env as RuntimeEnv;
+  }
 }
 
 async function getDb() {
   const runtimeEnv = await getRuntimeEnv();
   if (!runtimeEnv.DB) {
     throw new Error(
-      "Cloudflare D1 binding `DB` is unavailable. Set the `d1` field in .openai/hosting.json to `DB` or let your control plane inject the real binding values before using the database.",
+      "Connection database binding `DB` is unavailable. Configure a server-side database before using live provider connections.",
     );
   }
   return drizzle(runtimeEnv.DB, { schema });
@@ -176,7 +182,9 @@ async function getEncryptionKey() {
     material = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(configured)));
   }
 
-  return crypto.subtle.importKey("raw", material, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const keyData = new ArrayBuffer(material.byteLength);
+  new Uint8Array(keyData).set(material);
+  return crypto.subtle.importKey("raw", keyData, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
 async function encryptJson(value: unknown) {
@@ -232,8 +240,8 @@ function publicConnection(row: ConnectionRow): ConnectionRecord {
 
 function routeErrorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "Unexpected error";
-  if (message.includes("D1 binding `DB` is unavailable")) {
-    return "The connection vault needs the deployed database binding. Set `.openai/hosting.json` d1 to DB and deploy.";
+  if (message.includes("database binding `DB` is unavailable")) {
+    return "The connection vault needs a deployed server database. On OpenAI Sites use the D1 `DB` binding; on Vercel add a persistent store such as Vercel Postgres, Neon, or Upstash before enabling live OAuth connections.";
   }
   if (message.includes("no such table") || message.includes("connections")) {
     return "The connection tables are not available yet. Generate and deploy the D1 migration before using live connections.";
@@ -481,11 +489,13 @@ async function testProvider(provider: ConnectionProvider, token: string) {
   }
 }
 
-function gmailPartBody(part: {
+type GmailMessagePart = {
   mimeType?: string;
   body?: { data?: string };
-  parts?: Array<{ mimeType?: string; body?: { data?: string }; parts?: unknown[] }>;
-}): string {
+  parts?: GmailMessagePart[];
+};
+
+function gmailPartBody(part: GmailMessagePart): string {
   if (part.mimeType === "text/plain" && part.body?.data) return base64UrlDecode(part.body.data);
   for (const child of part.parts ?? []) {
     const value = gmailPartBody(child);
@@ -714,7 +724,7 @@ export async function readLatestEmail(request: Request, connectionId: string) {
       headers: { authorization: `Bearer ${token}` },
     });
     const message = (await messageResponse.json()) as {
-      payload?: { headers?: Array<{ name?: string; value?: string }>; body?: { data?: string }; parts?: unknown[]; mimeType?: string };
+      payload?: GmailMessagePart & { headers?: Array<{ name?: string; value?: string }> };
       snippet?: string;
       error?: { message?: string };
     };

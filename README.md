@@ -135,6 +135,14 @@ cd services/agent-runtime
 
 ## Hosting
 
-Localhost remains the primary workflow-building experience. A deployed OpenAI Sites URL is required for real third-party OAuth callbacks; it does not host the optional Python Agent-node service.
+Localhost remains the primary workflow-building experience.
+
+Vercel is the cleaner public product deployment target. The repo includes `vercel.json`, which makes Vercel run `npm run build:vercel` (`next build`) instead of the Cloudflare/vinext build used by Sites. The deployed Vercel URL can be used as the OAuth callback host:
+
+`/api/connections/oauth/callback`
+
+The current Vercel build runs the workflow builder and local demo experience. Server-backed third-party connections on Vercel still need a Vercel-compatible persistent store such as Vercel Postgres/Neon/Upstash; until then, the UI honestly falls back to local setup mode.
+
+OpenAI Sites remains available as an optional private callback/demo host; it does not host the optional Python Agent-node service.
 
 GitHub repository: [snehaguptagi/flowcraft-agent-studio](https://github.com/snehaguptagi/flowcraft-agent-studio)

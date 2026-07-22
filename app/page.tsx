@@ -1393,7 +1393,7 @@ export default function Home() {
       setNodes((current) => current.map((candidate) => (
         candidate.id === id ? { ...candidate, status: "completed", output: result.output, latency: duration } : candidate
       )));
-      setExecutionHistory((current) => [{
+      const record: ExecutionRecord = {
         id: `step-${Date.now()}`,
         mode: "step",
         status: "success",
@@ -1401,7 +1401,8 @@ export default function Home() {
         duration,
         nodeCount: 1,
         summary: `${node.name} tested manually`,
-      }, ...current].slice(0, 20));
+      };
+      setExecutionHistory((current) => [record, ...current].slice(0, 20));
       if (result.liveMessage) addLog({ level: "info", node: node.name, message: result.liveMessage });
       addLog({ level: "success", node: node.name, message: `Step completed in ${duration} ms` });
       showToast(`${node.name} completed`);
@@ -1410,7 +1411,7 @@ export default function Home() {
       setNodes((current) => current.map((candidate) => (
         candidate.id === id ? { ...candidate, status: "failed", latency: duration } : candidate
       )));
-      setExecutionHistory((current) => [{
+      const record: ExecutionRecord = {
         id: `step-failed-${Date.now()}`,
         mode: "step",
         status: "failed",
@@ -1418,7 +1419,8 @@ export default function Home() {
         duration,
         nodeCount: 1,
         summary: `${node.name} failed`,
-      }, ...current].slice(0, 20));
+      };
+      setExecutionHistory((current) => [record, ...current].slice(0, 20));
       const message = error instanceof Error ? error.message : "Step failed";
       addLog({ level: "error", node: node.name, message });
       setConsoleTab("errors");
@@ -1449,7 +1451,7 @@ export default function Home() {
     if (issues.length) {
       setConsoleTab("errors");
       issues.forEach((message) => addLog({ level: "error", message }));
-      setExecutionHistory((current) => [{
+      const record: ExecutionRecord = {
         id: `failed-${Date.now()}`,
         mode: "workflow",
         status: "failed",
@@ -1457,7 +1459,8 @@ export default function Home() {
         duration: 0,
         nodeCount: nodes.length,
         summary: `${issues.length} validation ${issues.length === 1 ? "issue" : "issues"}`,
-      }, ...current].slice(0, 20));
+      };
+      setExecutionHistory((current) => [record, ...current].slice(0, 20));
       showToast(`${issues.length} validation ${issues.length === 1 ? "issue" : "issues"}`);
       return;
     }
@@ -1712,7 +1715,7 @@ export default function Home() {
         const duration = Math.round(performance.now() - started);
         setRunDuration(duration);
         setIsRunning(false);
-        setExecutionHistory((current) => [{
+        const record: ExecutionRecord = {
           id: `workflow-failed-${Date.now()}`,
           mode: "workflow",
           status: "failed",
@@ -1720,7 +1723,8 @@ export default function Home() {
           duration,
           nodeCount: order.length,
           summary: `${workflowName} failed at ${node.name}`,
-        }, ...current].slice(0, 20));
+        };
+        setExecutionHistory((current) => [record, ...current].slice(0, 20));
         showToast(`${node.name} failed`);
         return;
       }
@@ -1729,7 +1733,7 @@ export default function Home() {
     const duration = Math.round(performance.now() - started);
     setRunDuration(duration);
     setIsRunning(false);
-    setExecutionHistory((current) => [{
+    const record: ExecutionRecord = {
       id: `workflow-${Date.now()}`,
       mode: "workflow",
       status: "success",
@@ -1737,7 +1741,8 @@ export default function Home() {
       duration,
       nodeCount: order.length,
       summary: `${workflowName} completed`,
-    }, ...current].slice(0, 20));
+    };
+    setExecutionHistory((current) => [record, ...current].slice(0, 20));
     addLog({ level: "success", message: `Workflow completed · ${order.length} nodes · ${duration} ms` });
     showToast("Workflow completed");
   };

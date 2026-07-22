@@ -1,0 +1,12 @@
+.agents
+.ruff_cache
+.wrangler
+dist
+examples
+outputs
+services
+work
+**/.pytest_cache
+**/.ruff_cache
+**/.venv
+**/__pycache__
