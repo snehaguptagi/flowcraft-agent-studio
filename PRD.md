@@ -244,19 +244,28 @@ An optional bounded node that may choose among explicitly approved tools over mu
 - Keep every template configured and runnable with the local demo runtime.
 - Make Email drafting the default flagship workflow.
 
-### 11.8 Email connector — P1
+### 11.8 Third-party connection vault — P1
 
-- Support one user-selected provider first: Gmail or Outlook.
-- Use server-side OAuth and store no credentials in browser storage or workflow exports.
-- Request the minimum scopes required to read selected inbox messages and create drafts.
-- Treat message identifiers as idempotency keys so the same email is not processed twice.
-- Show connection, sync, draft-created, and failure states explicitly.
-- Require human review outside the workflow before sending.
+- Support reusable connection resources for Gmail, Outlook, Slack, Google Calendar, Notion, and webhooks.
+- Use server-side OAuth for supported providers and store no credentials in browser storage or workflow exports.
+- Store connection metadata and short-lived OAuth state in D1.
+- Encrypt provider access and refresh tokens server-side with `CONNECTION_ENCRYPTION_KEY`.
+- Show connection, test, provider action, and failure states explicitly.
 - Block live-provider execution when no secure connection exists; never fall back silently to sample data.
 - Manage credential connections separately from workflow graphs and reference them from nodes by ID.
 - Distinguish `Authentication required`, `Connected`, `Expired`, and `Connection error` states.
-- Test a credential against the provider before marking it connected.
+- Test a credential against the provider before letting a side-effecting node use it.
 - Keep local sample input and local draft preview modes available without implying any provider side effect.
+
+### 11.9 Email connector actions — P1
+
+- Email nodes may use Gmail or Outlook connections only.
+- Read the latest inbox message through a selected connected provider.
+- Create a provider draft from a workflow result.
+- Request the minimum practical scopes required to read inbox messages and create drafts.
+- Treat message identifiers as idempotency keys so the same email is not processed twice.
+- Require human review outside the workflow before sending.
+- Never send email automatically.
 
 ## 12. Agent selection rule
 
@@ -286,6 +295,8 @@ Use an Agent node only when all of these are true:
 - vinext and Vite
 - Custom visual graph canvas
 - Browser local storage for device-local drafts
+- Cloudflare D1 for server-side connection metadata and OAuth state
+- Server-side OAuth routes for provider authentication, provider tests, and live email actions
 - Cloudflare-compatible build output
 
 The frontend is the core product and must run independently at `http://localhost:3000`.
@@ -305,7 +316,7 @@ The current prototype runs standard nodes through the TypeScript workflow execut
 
 - No secrets in browser storage or workflow exports.
 - No arbitrary Python, JavaScript, SQL, formulas, or macros from users.
-- No privileged external side effects in the MVP.
+- No privileged external side effects without an authenticated, tested connection and explicit action node.
 - Document and dataset inputs are run-scoped in the optional runtime.
 - Agent tools must be explicit, typed, and bounded.
 - User-visible traces contain concise event summaries, not private reasoning.
@@ -323,7 +334,9 @@ The MVP is accepted when:
 - Workflow and step tests appear in execution history with status and duration.
 - The default email template runs through five connected steps and ends with a visible local draft preview that says no mailbox is connected and nothing was saved or sent.
 - All five prebuilt templates run successfully with the local demo runtime.
-- Creating a Gmail or Outlook setup leaves it visibly unauthenticated; selecting it in a node produces a clear validation issue rather than a simulated live run.
+- Creating a third-party setup leaves it visibly unauthenticated until OAuth completes.
+- Email nodes only accept email-capable connections.
+- Selecting an unauthenticated connection in a node produces a clear validation issue rather than a simulated live run.
 - Connections are managed separately from workflows, and nodes reference credential IDs rather than provider labels.
 - Suggested nodes cover the normal workflow path, while optional Agent nodes are disclosed as an advanced capability.
 - The local demo runtime is visibly identified and cannot be mistaken for a live provider call.
@@ -352,7 +365,7 @@ The MVP is accepted when:
 ### Next
 
 - Real server-backed model execution for standard AI nodes
-- First secure email provider connection after the user selects Gmail or Outlook
+- Provider environment configuration for the first production OAuth connection
 - Typed ports and connection compatibility
 - Template persistence and user-authored template sharing
 - Secure connector abstractions

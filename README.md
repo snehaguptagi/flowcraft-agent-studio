@@ -11,7 +11,8 @@ Retrieval, classification, translation, logic, and structured-output nodes can b
 ## What is built
 
 - Flagship **Inbox triage & draft reply** workflow: sample email → triage → policy context → drafted reply → local preview
-- First-class **Connections** area with Gmail and Outlook setup records, explicit authentication states, node-level credential selection, and blocked live execution until OAuth is real
+- First-class **Connections** area for Gmail, Outlook, Slack, Google Calendar, Notion, and webhooks, with explicit authentication states and node-level credential selection
+- Server-backed connection APIs for OAuth start/callback, encrypted token storage, provider testing, latest-email reads, and draft creation
 - Five complete local templates: Email drafting, Customer support, Meeting notes, Lead qualification, and Document Q&A
 - Template gallery with outcomes, categories, connected-step counts, and one-click loading
 - Guided outcome card that explains what the current template does and how to run it
@@ -54,7 +55,31 @@ The editor is canvas-first: the node picker opens only when needed, and selectin
 
 The included **Demo runtime** produces a clearly labeled deterministic AI sample. Selecting OpenAI, Gemini, or Claude intentionally blocks local execution until a secure backend provider connection is configured; the UI does not pretend that a live model call happened.
 
-Email connections follow n8n’s credential pattern: connections exist separately from workflows, and email nodes select a connection by ID. Open **Connect** to create a Gmail or Outlook setup record. A saved setup remains **Authentication required** and live execution stays blocked until a server-side OAuth callback, encrypted token storage, and a real connection test are implemented. Sample email data is never presented as a connected mailbox. The intended live permission boundary is inbox reading plus draft creation only; Flowcraft must never send an email automatically.
+Connections follow n8n’s credential pattern: they exist separately from workflows, and nodes select a connection by ID. Open **Connect** to create Gmail, Outlook, Slack, Google Calendar, Notion, or webhook setup records. In local-only mode, saved records stay **Authentication required**. With the deployed server vault plus provider secrets configured, OAuth can complete, the provider can be tested, and email nodes can read the latest inbox message or create a draft. Sample email data is never presented as a connected mailbox. The email permission boundary is inbox reading plus draft creation only; Flowcraft must never send an email automatically.
+
+### Live third-party connections
+
+Real OAuth needs a stable deployed callback URL and server-side secrets. Configure only the providers you want to enable:
+
+```powershell
+CONNECTION_ENCRYPTION_KEY=
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+OUTLOOK_CLIENT_ID=
+OUTLOOK_CLIENT_SECRET=
+SLACK_CLIENT_ID=
+SLACK_CLIENT_SECRET=
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
+NOTION_CLIENT_ID=
+NOTION_CLIENT_SECRET=
+```
+
+Provider apps should use this callback path on the deployed site:
+
+`/api/connections/oauth/callback`
+
+The database migration in `drizzle/0000_pale_ultimatum.sql` creates the connection vault and short-lived OAuth state tables. Tokens are encrypted server-side and never stored in workflow JSON or browser storage.
 
 ### Optional Agent-node service
 
@@ -82,6 +107,8 @@ Use normal nodes for prompting, summarization, classification, translation, extr
 - React 19, TypeScript, vinext, and Vite
 - Custom visual graph canvas
 - Browser local storage for device-local drafts
+- Cloudflare D1 for server-side connection metadata and OAuth state
+- Server-side OAuth with encrypted provider token storage
 - Optional Python, FastAPI, and LangGraph service for Agent nodes
 - Optional LangSmith traces for engineering diagnostics
 - Cloudflare-compatible frontend output
@@ -108,6 +135,6 @@ cd services/agent-runtime
 
 ## Hosting
 
-Localhost is the primary development experience. An OpenAI Sites deployment may be used as an optional private demo, but it is not the local runtime and does not host the Python Agent-node service.
+Localhost remains the primary workflow-building experience. A deployed OpenAI Sites URL is required for real third-party OAuth callbacks; it does not host the optional Python Agent-node service.
 
 GitHub repository: [snehaguptagi/flowcraft-agent-studio](https://github.com/snehaguptagi/flowcraft-agent-studio)

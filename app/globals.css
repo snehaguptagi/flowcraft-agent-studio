@@ -1539,6 +1539,9 @@ textarea:focus-visible {
 .connections-panel { width: 420px; overflow: hidden; }
 .connections-intro { margin: -2px 18px 12px; color: var(--muted); font-size: 10.5px; line-height: 1.55; }
 .connection-truth { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; margin: 0 16px 12px; padding: 11px; border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line)); border-radius: 9px; background: color-mix(in srgb, var(--accent-soft) 38%, var(--panel)); }
+.connection-truth.vault-server { border-color: color-mix(in srgb, var(--green) 34%, var(--line)); background: var(--green-soft); }
+.connection-truth.vault-server > span { background: var(--green); }
+.connection-truth.vault-checking > span { background: var(--muted); }
 .connection-truth > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: white; font-size: 9px; font-weight: 900; }
 .connection-truth strong { font-size: 10px; }
 .connection-truth p { margin: 3px 0 0; color: var(--muted); font-size: 8.7px; line-height: 1.45; }
@@ -1563,15 +1566,21 @@ textarea:focus-visible {
 .connection-provider { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; color: white; font-size: 12px; font-weight: 900; }
 .provider-gmail { background: #d84d3f; }
 .provider-outlook { background: #2878c8; }
+.provider-slack { background: #4a154b; }
+.provider-google-calendar { background: #1a73e8; }
+.provider-notion { background: #111827; }
+.provider-webhook { background: #64748b; }
 .connection-copy { min-width: 0; display: grid; gap: 3px; }
 .connection-copy strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .connection-copy > span { color: var(--muted); font-size: 8.5px; }
+.connection-copy em { width: max-content; max-width: 100%; overflow: hidden; color: var(--ink); font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.connection-copy small { color: var(--muted); font-size: 8px; line-height: 1.35; }
 .connection-status { width: max-content; display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; color: #8a6700; font-size: 7.5px; text-transform: uppercase; letter-spacing: .04em; }
 .connection-status i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .connection-status.status-connected { color: var(--green); }
 .connection-status.status-error,
 .connection-status.status-expired { color: var(--red); }
-.connection-actions { display: flex; align-items: center; gap: 5px; }
+.connection-actions { display: grid; justify-items: end; gap: 5px; }
 .connection-actions button { border: 1px solid var(--line); border-radius: 6px; padding: 6px 7px; background: var(--panel); color: var(--ink); cursor: pointer; font-size: 8px; font-weight: 800; }
 .connection-actions button:disabled { opacity: .42; cursor: not-allowed; }
 .connection-empty { display: grid; place-items: center; padding: 34px 20px; text-align: center; }

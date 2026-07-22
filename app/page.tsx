@@ -22,6 +22,15 @@ import {
   type DataInput,
   type DocumentInput,
 } from "./lib/agent-runtime";
+import {
+  connectionStatusLabel,
+  getIntegrationProvider,
+  integrationProviders,
+  isEmailProvider,
+  providerLabel,
+  type ConnectionProvider,
+  type ConnectionRecord,
+} from "./lib/integrations";
 
 type NodeCategory = "Input" | "Agent" | "AI" | "Logic" | "Output";
 type NodeStatus =
@@ -70,16 +79,7 @@ type NodeConfig = {
   emailBody?: string;
 };
 
-type ConnectionProvider = "gmail" | "outlook";
-type ConnectionStatus = "needs_auth" | "connected" | "expired" | "error";
-
-type Connection = {
-  id: string;
-  name: string;
-  provider: ConnectionProvider;
-  status: ConnectionStatus;
-  createdAt: string;
-};
+type Connection = ConnectionRecord & { source?: "server" | "local" };
 
 type WorkflowNode = {
   id: string;
@@ -149,9 +149,8 @@ type WorkflowTemplate = {
   edges: WorkflowEdge[];
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v9";
-const CONNECTIONS_STORAGE_KEY = "flowcraft-connections-v1";
-const LIVE_EMAIL_CONNECTORS_ENABLED = false;
+const STORAGE_KEY = "flowcraft-ai-workflow-v10";
+const CONNECTIONS_STORAGE_KEY = "flowcraft-connections-v2";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 const recommendedNodeTypes = new Set([
@@ -480,17 +479,6 @@ function statusLabel(status: NodeStatus) {
   return "Ready";
 }
 
-function providerLabel(provider: ConnectionProvider) {
-  return provider === "gmail" ? "Gmail" : "Microsoft Outlook";
-}
-
-function connectionStatusLabel(status: ConnectionStatus) {
-  if (status === "connected") return "Connected";
-  if (status === "expired") return "Expired";
-  if (status === "error") return "Connection error";
-  return "Authentication required";
-}
-
 function phaseToNodeStatus(phase: AgentPhase): NodeStatus {
   return phase;
 }
@@ -522,6 +510,8 @@ export default function Home() {
   const [showAdvancedNodes, setShowAdvancedNodes] = useState(false);
   const [sidePanel, setSidePanel] = useState<"nodes" | "templates" | "connections" | "executions" | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [connectionBackend, setConnectionBackend] = useState<"checking" | "server" | "local">("checking");
+  const [connectionBusyId, setConnectionBusyId] = useState<string | null>(null);
   const [showConnectionForm, setShowConnectionForm] = useState(false);
   const [connectionDraft, setConnectionDraft] = useState<{ name: string; provider: ConnectionProvider }>({
     name: "My Gmail",
@@ -582,6 +572,20 @@ export default function Home() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2400);
   }, []);
 
+  const refreshServerConnections = useCallback(async () => {
+    try {
+      const response = await fetch("/api/connections", { cache: "no-store" });
+      const payload = (await response.json()) as { connections?: Connection[]; error?: string };
+      if (!response.ok || !Array.isArray(payload.connections)) throw new Error(payload.error || "Connection vault unavailable");
+      setConnections(payload.connections.map((connection) => ({ ...connection, source: "server" })));
+      setConnectionBackend("server");
+      return true;
+    } catch {
+      setConnectionBackend("local");
+      return false;
+    }
+  }, []);
+
   useEffect(() => {
     const hydrationTimer = window.setTimeout(() => {
       try {
@@ -621,16 +625,31 @@ export default function Home() {
         }
         if (storedConnections) {
           const parsedConnections = JSON.parse(storedConnections) as Connection[];
-          if (Array.isArray(parsedConnections)) setConnections(parsedConnections);
+          if (Array.isArray(parsedConnections)) {
+            setConnections(parsedConnections.map((connection) => ({ ...connection, source: "local" })));
+            setConnectionBackend("local");
+          }
         }
         setDarkMode(storedTheme === "dark");
       } catch {
         // A malformed local draft should never block the starter workflow.
       }
       hydratedRef.current = true;
+      void refreshServerConnections();
+
+      const params = new URLSearchParams(window.location.search);
+      const connectionResult = params.get("connection");
+      if (connectionResult === "connected") showToast("Connection authenticated");
+      if (connectionResult === "error") showToast(params.get("reason") || "Connection authentication failed");
+      if (connectionResult) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("connection");
+        url.searchParams.delete("reason");
+        window.history.replaceState(null, "", url.toString());
+      }
     }, 0);
     return () => window.clearTimeout(hydrationTimer);
-  }, []);
+  }, [refreshServerConnections, showToast]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -644,8 +663,9 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
+    if (connectionBackend === "server" || connectionBackend === "checking") return;
     window.localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(connections));
-  }, [connections]);
+  }, [connectionBackend, connections]);
 
   useEffect(() => {
     if (!dragging && !panning) return;
@@ -704,11 +724,30 @@ export default function Home() {
     ]);
   }, []);
 
-  const saveConnectionSetup = () => {
+  const saveConnectionSetup = async () => {
     const name = connectionDraft.name.trim();
     if (!name) {
       showToast("Give this connection a name");
       return;
+    }
+    if (connectionBackend !== "local") {
+      try {
+        const response = await fetch("/api/connections", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name, provider: connectionDraft.provider }),
+        });
+        const payload = (await response.json()) as { connection?: Connection; error?: string };
+        if (!response.ok || !payload.connection) throw new Error(payload.error || "Connection vault unavailable");
+        setConnections((current) => [{ ...payload.connection!, source: "server" }, ...current]);
+        setConnectionBackend("server");
+        setShowConnectionForm(false);
+        setConnectionDraft({ name: "My Gmail", provider: "gmail" });
+        showToast("Connection setup saved");
+        return;
+      } catch {
+        setConnectionBackend("local");
+      }
     }
     setConnections((current) => [
       ...current,
@@ -718,21 +757,92 @@ export default function Home() {
         provider: connectionDraft.provider,
         status: "needs_auth",
         createdAt: new Date().toISOString(),
+        source: "local",
+        statusReason: "Saved locally only. Deploy and configure provider OAuth to authenticate it.",
+        scopes: [],
       },
     ]);
     setShowConnectionForm(false);
     setConnectionDraft({ name: "My Gmail", provider: "gmail" });
-    showToast("Connection setup saved — authentication is still required");
+    showToast("Local setup saved — authentication is still required");
   };
 
-  const removeConnection = (id: string) => {
+  const removeConnection = async (id: string) => {
     const usageCount = nodes.filter((node) => node.config.connectionId === id).length;
     if (usageCount) {
       showToast(`This connection is used by ${usageCount} workflow ${usageCount === 1 ? "step" : "steps"}`);
       return;
     }
+    const connection = connections.find((candidate) => candidate.id === id);
+    if (connection?.source === "server") {
+      try {
+        const response = await fetch(`/api/connections/${id}`, { method: "DELETE" });
+        if (!response.ok) throw new Error("Delete failed");
+      } catch {
+        showToast("Could not remove the server connection");
+        return;
+      }
+    }
     setConnections((current) => current.filter((connection) => connection.id !== id));
     showToast("Connection setup removed");
+  };
+
+  const authenticateConnection = async (connection: Connection) => {
+    if (connection.source !== "server" && connectionBackend !== "server") {
+      showToast("Deploy the server vault before authenticating");
+      return;
+    }
+    setConnectionBusyId(connection.id);
+    try {
+      const response = await fetch("/api/connections/oauth/start", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionId: connection.id, returnTo: "/" }),
+      });
+      const payload = (await response.json()) as {
+        connection?: Connection;
+        authorizationUrl?: string | null;
+        setupRequired?: string[];
+        error?: string;
+      };
+      if (payload.connection) {
+        setConnections((current) => current.map((candidate) => (
+          candidate.id === payload.connection!.id ? { ...payload.connection!, source: "server" } : candidate
+        )));
+      }
+      if (payload.authorizationUrl) {
+        window.location.assign(payload.authorizationUrl);
+        return;
+      }
+      if (!response.ok && payload.error) throw new Error(payload.error);
+      showToast(payload.setupRequired?.length ? `Server needs ${payload.setupRequired.join(", ")}` : "OAuth setup is not ready");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not start authentication");
+    } finally {
+      setConnectionBusyId(null);
+    }
+  };
+
+  const testSavedConnection = async (connection: Connection) => {
+    if (connection.source !== "server") {
+      showToast("Only server connections can be tested");
+      return;
+    }
+    setConnectionBusyId(connection.id);
+    try {
+      const response = await fetch(`/api/connections/${connection.id}/test`, { method: "POST" });
+      const payload = (await response.json()) as { connection?: Connection; error?: string };
+      if (!response.ok || !payload.connection) throw new Error(payload.error || "Connection test failed");
+      setConnections((current) => current.map((candidate) => (
+        candidate.id === payload.connection!.id ? { ...payload.connection!, source: "server" } : candidate
+      )));
+      showToast("Connection test passed");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Connection test failed");
+      void refreshServerConnections();
+    } finally {
+      setConnectionBusyId(null);
+    }
   };
 
   const filteredCatalog = useMemo(() => {
@@ -1053,7 +1163,7 @@ export default function Home() {
           const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
           if (!connection) issues.push(`${node.name} needs a mailbox connection.`);
           else if (connection.status !== "connected") issues.push(`${node.name} cannot use ${connection.name}: ${connectionStatusLabel(connection.status).toLowerCase()}.`);
-          else if (!LIVE_EMAIL_CONNECTORS_ENABLED) issues.push(`${node.name} cannot run live because the email connector backend is not configured on this localhost.`);
+          else if (!isEmailProvider(connection.provider)) issues.push(`${node.name} cannot read email from ${providerLabel(connection.provider)}.`);
         }
       }
       if (node.type === "email-draft") {
@@ -1062,7 +1172,7 @@ export default function Home() {
           const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
           if (!connection) issues.push(`${node.name} needs a mailbox connection.`);
           else if (connection.status !== "connected") issues.push(`${node.name} cannot use ${connection.name}: ${connectionStatusLabel(connection.status).toLowerCase()}.`);
-          else if (!LIVE_EMAIL_CONNECTORS_ENABLED) issues.push(`${node.name} cannot run live because the email connector backend is not configured on this localhost.`);
+          else if (!isEmailProvider(connection.provider)) issues.push(`${node.name} cannot create email drafts with ${providerLabel(connection.provider)}.`);
         }
       }
       if (node.type === "file-upload" && !node.config.documentContent?.trim()) {
@@ -1200,6 +1310,44 @@ export default function Home() {
     }
   };
 
+  const providerRequest = async (url: string, payload: Record<string, unknown>) => {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const result = (await response.json()) as { output?: string; error?: string };
+    if (!response.ok || !result.output) throw new Error(result.error || "Provider action failed.");
+    return result.output;
+  };
+
+  const draftFromInput = (input: string, fallbackSubject: string) => {
+    const subjectMatch = input.match(/^Subject:\s*(.+)$/im);
+    const subject = subjectMatch?.[1]?.trim() || fallbackSubject;
+    const body = input.replace(/^Subject:\s*.+\r?\n*/im, "").trim();
+    return { subject, body: body || input };
+  };
+
+  const executeStandardNode = async (node: WorkflowNode, inputs: string[]) => {
+    if (node.type === "email-trigger" && (node.config.sourceMode ?? "sample") === "connection") {
+      const output = await providerRequest("/api/runtime/email/latest", { connectionId: node.config.connectionId });
+      return { output, liveMessage: "Read the latest inbox message through the selected connection" };
+    }
+    if (node.type === "email-draft" && (node.config.deliveryMode ?? "preview") === "connection") {
+      const input = inputs.filter(Boolean).join("\n\n");
+      const draft = draftFromInput(input, "Draft reply");
+      const output = await providerRequest("/api/runtime/email/drafts", {
+        connectionId: node.config.connectionId,
+        to: node.config.emailTo,
+        subject: draft.subject,
+        body: draft.body,
+      });
+      return { output, liveMessage: "Created a provider draft only. Nothing was sent." };
+    }
+    await sleep(380 + (node.type.length % 4) * 90);
+    return { output: computeOutput(node, inputs), liveMessage: "" };
+  };
+
   const runSingleNode = async (id: string) => {
     if (isRunning) return;
     const node = nodes.find((candidate) => candidate.id === id);
@@ -1214,14 +1362,14 @@ export default function Home() {
     }
     if (node.type === "email-trigger" && (node.config.sourceMode ?? "sample") === "connection") {
       const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
-      if (!connection || connection.status !== "connected" || !LIVE_EMAIL_CONNECTORS_ENABLED) {
+      if (!connection || connection.status !== "connected" || !isEmailProvider(connection.provider)) {
         showToast("Choose an authenticated mailbox connection first");
         return;
       }
     }
     if (node.type === "email-draft" && (node.config.deliveryMode ?? "preview") === "connection") {
       const connection = connections.find((candidate) => candidate.id === node.config.connectionId);
-      if (!connection || connection.status !== "connected" || !LIVE_EMAIL_CONNECTORS_ENABLED) {
+      if (!connection || connection.status !== "connected" || !isEmailProvider(connection.provider)) {
         showToast("Choose an authenticated mailbox connection first");
         return;
       }
@@ -1237,24 +1385,47 @@ export default function Home() {
       .filter((edge) => edge.to === id)
       .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
       .map((candidate) => candidate?.pinnedOutput ?? candidate?.output ?? candidate?.config.value ?? "");
-    await sleep(320);
-    const output = node.pinnedOutput ?? computeOutput(node, inputValues);
-    const duration = Math.round(performance.now() - started);
-    setNodes((current) => current.map((candidate) => (
-      candidate.id === id ? { ...candidate, status: "completed", output, latency: duration } : candidate
-    )));
-    setExecutionHistory((current) => [{
-      id: `step-${Date.now()}`,
-      mode: "step",
-      status: "success",
-      startedAt: nowLabel(),
-      duration,
-      nodeCount: 1,
-      summary: `${node.name} tested manually`,
-    }, ...current].slice(0, 20));
-    addLog({ level: "success", node: node.name, message: `Step completed in ${duration} ms` });
-    setIsRunning(false);
-    showToast(`${node.name} completed`);
+    try {
+      const result = node.pinnedOutput
+        ? { output: node.pinnedOutput, liveMessage: "Used pinned test data" }
+        : await executeStandardNode(node, inputValues);
+      const duration = Math.round(performance.now() - started);
+      setNodes((current) => current.map((candidate) => (
+        candidate.id === id ? { ...candidate, status: "completed", output: result.output, latency: duration } : candidate
+      )));
+      setExecutionHistory((current) => [{
+        id: `step-${Date.now()}`,
+        mode: "step",
+        status: "success",
+        startedAt: nowLabel(),
+        duration,
+        nodeCount: 1,
+        summary: `${node.name} tested manually`,
+      }, ...current].slice(0, 20));
+      if (result.liveMessage) addLog({ level: "info", node: node.name, message: result.liveMessage });
+      addLog({ level: "success", node: node.name, message: `Step completed in ${duration} ms` });
+      showToast(`${node.name} completed`);
+    } catch (error) {
+      const duration = Math.round(performance.now() - started);
+      setNodes((current) => current.map((candidate) => (
+        candidate.id === id ? { ...candidate, status: "failed", latency: duration } : candidate
+      )));
+      setExecutionHistory((current) => [{
+        id: `step-failed-${Date.now()}`,
+        mode: "step",
+        status: "failed",
+        startedAt: nowLabel(),
+        duration,
+        nodeCount: 1,
+        summary: `${node.name} failed`,
+      }, ...current].slice(0, 20));
+      const message = error instanceof Error ? error.message : "Step failed";
+      addLog({ level: "error", node: node.name, message });
+      setConsoleTab("errors");
+      showToast(message);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const togglePinnedOutput = (node: WorkflowNode) => {
@@ -1510,8 +1681,16 @@ export default function Home() {
               : "Executed by the browser sandbox",
         });
       } else {
-        await sleep(380 + (node.type.length % 4) * 90);
-        output = computeOutput(node, inputValues);
+        try {
+          const result = await executeStandardNode(node, inputValues);
+          output = result.output;
+          if (result.liveMessage) addLog({ level: "info", node: node.name, message: result.liveMessage });
+        } catch (error) {
+          output = error instanceof Error ? error.message : "Provider action failed";
+          finalStatus = "failed";
+          setConsoleTab("errors");
+          addLog({ level: "error", node: node.name, message: output });
+        }
         if (node.type === "llm") {
           addLog({ level: "info", node: node.name, message: "Generated by the deterministic local demo runtime" });
         }
@@ -1529,6 +1708,22 @@ export default function Home() {
         node: node.name,
         message: `${statusLabel(finalStatus)} in ${latency} ms`,
       });
+      if (finalStatus === "failed") {
+        const duration = Math.round(performance.now() - started);
+        setRunDuration(duration);
+        setIsRunning(false);
+        setExecutionHistory((current) => [{
+          id: `workflow-failed-${Date.now()}`,
+          mode: "workflow",
+          status: "failed",
+          startedAt: nowLabel(),
+          duration,
+          nodeCount: order.length,
+          summary: `${workflowName} failed at ${node.name}`,
+        }, ...current].slice(0, 20));
+        showToast(`${node.name} failed`);
+        return;
+      }
     }
 
     const duration = Math.round(performance.now() - started);
@@ -1670,6 +1865,22 @@ export default function Home() {
     (node.agentTrace ?? []).map((event) => ({ event, nodeName: node.name })),
   );
   const graphIssues = validateWorkflow();
+  const emailConnections = connections.filter((connection) => isEmailProvider(connection.provider));
+  const connectionBackendCopy =
+    connectionBackend === "server"
+      ? {
+          title: "Server vault active",
+          body: "Connection metadata is stored server-side. OAuth can begin when the selected provider secrets are configured.",
+        }
+      : connectionBackend === "checking"
+        ? {
+            title: "Checking connection vault",
+            body: "Flowcraft is looking for the deployed connection storage before falling back to local setup mode.",
+          }
+        : {
+            title: "Local setup mode",
+            body: "Connections created here are metadata only. They cannot authenticate until the app is deployed with provider credentials.",
+          };
 
   return (
     <main className={`app-shell ${darkMode ? "theme-dark" : ""}`}>
@@ -1803,33 +2014,48 @@ export default function Home() {
 
         {sidePanel === "connections" && <aside className="connections-panel floating-panel" aria-label="Connections">
           <div className="panel-heading library-heading">
-            <div><span className="eyebrow">CREDENTIALS</span><h2>Connections</h2></div>
+            <div><span className="eyebrow">THIRD-PARTY TOOLS</span><h2>Connections</h2></div>
             <button className="mini-button" onClick={() => setSidePanel(null)} aria-label="Close connections">×</button>
           </div>
-          <p className="connections-intro">Connections live separately from workflows. Email nodes reference one by ID and can run live only after real OAuth authentication succeeds.</p>
-          <div className="connection-truth"><span>i</span><div><strong>No mailbox is connected by default</strong><p>Sample data is not a credential. Flowcraft stores setup metadata here, never access tokens in browser storage.</p></div></div>
+          <p className="connections-intro">Connections live separately from workflows. Nodes reference a connection by ID and real actions stay blocked until OAuth and a provider test succeed.</p>
+          <div className={`connection-truth vault-${connectionBackend}`}><span>i</span><div><strong>{connectionBackendCopy.title}</strong><p>{connectionBackendCopy.body}</p></div></div>
           {!showConnectionForm && <button className="add-connection-button" onClick={() => setShowConnectionForm(true)}>＋ Add connection</button>}
           {showConnectionForm && <div className="connection-form">
-            <div className="form-section-title"><span>New email connection</span><button onClick={() => setShowConnectionForm(false)} aria-label="Cancel connection setup">×</button></div>
+            <div className="form-section-title"><span>New connection</span><button onClick={() => setShowConnectionForm(false)} aria-label="Cancel connection setup">×</button></div>
             <label className="field-label">Provider<select value={connectionDraft.provider} onChange={(event) => {
               const provider = event.target.value as ConnectionProvider;
-              setConnectionDraft({ provider, name: provider === "gmail" ? "My Gmail" : "My Outlook" });
-            }}><option value="gmail">Gmail</option><option value="outlook">Microsoft Outlook</option></select></label>
+              setConnectionDraft({ provider, name: `My ${getIntegrationProvider(provider).shortLabel}` });
+            }}>{integrationProviders.map((provider) => <option value={provider.id} key={provider.id}>{provider.label}</option>)}</select></label>
             <label className="field-label">Connection name<input value={connectionDraft.name} onChange={(event) => setConnectionDraft((current) => ({ ...current, name: event.target.value }))} /></label>
-            <div className="permission-list"><strong>Requested access</strong><span>✓ Read selected inbox messages</span><span>✓ Create email drafts</span><span className="permission-denied">× Sending is not requested</span></div>
-            <div className="oauth-note"><strong>OAuth app setup required</strong><p>This localhost still needs a provider Client ID, Client Secret, callback endpoint, and encrypted server-side token storage before authentication can begin.</p></div>
-            <button className="save-connection-button" onClick={saveConnectionSetup}>Save connection setup</button>
+            <div className="permission-list">
+              <strong>{getIntegrationProvider(connectionDraft.provider).authType === "oauth2" ? "Requested access" : "Connection shape"}</strong>
+              {getIntegrationProvider(connectionDraft.provider).capabilities.map((capability) => <span key={capability}>✓ {capability}</span>)}
+              {getIntegrationProvider(connectionDraft.provider).deniedCapabilities.map((capability) => <span className="permission-denied" key={capability}>× {capability}</span>)}
+            </div>
+            <div className="oauth-note"><strong>{getIntegrationProvider(connectionDraft.provider).authType === "oauth2" ? "OAuth callback ready" : "Secret storage required"}</strong><p>{getIntegrationProvider(connectionDraft.provider).authType === "oauth2" ? "After deployment, configure the provider app with this site’s callback endpoint and server environment values." : "Webhook credentials need server-side secret storage before live workflow actions can call the endpoint."}</p></div>
+            <button className="save-connection-button" onClick={saveConnectionSetup}>Save setup</button>
           </div>}
           <div className="connection-list">
             {connections.map((connection) => {
               const usageCount = nodes.filter((node) => node.config.connectionId === connection.id).length;
+              const provider = getIntegrationProvider(connection.provider);
               return <article className="connection-card" key={connection.id}>
-                <div className={`connection-provider provider-${connection.provider}`}>{connection.provider === "gmail" ? "G" : "O"}</div>
-                <div className="connection-copy"><strong>{connection.name}</strong><span>{providerLabel(connection.provider)} · OAuth 2.0</span><b className={`connection-status status-${connection.status}`}><i />{connectionStatusLabel(connection.status)}</b></div>
-                <div className="connection-actions"><button onClick={() => showToast("Authentication is unavailable until the OAuth backend is configured")}>Authenticate</button><button onClick={() => removeConnection(connection.id)} disabled={usageCount > 0} title={usageCount ? `Used by ${usageCount} workflow steps` : "Remove connection"}>×</button></div>
+                <div className={`connection-provider provider-${connection.provider}`}>{provider.mark}</div>
+                <div className="connection-copy">
+                  <strong>{connection.name}</strong>
+                  <span>{provider.label} · {provider.authType === "oauth2" ? "OAuth 2.0" : "Webhook"}</span>
+                  {connection.accountLabel && <em>{connection.accountLabel}</em>}
+                  <b className={`connection-status status-${connection.status}`}><i />{connectionStatusLabel(connection.status)}</b>
+                  {connection.statusReason && <small>{connection.statusReason}</small>}
+                </div>
+                <div className="connection-actions">
+                  <button onClick={() => authenticateConnection(connection)} disabled={connectionBusyId === connection.id || provider.authType !== "oauth2"}>{connection.status === "connected" ? "Reconnect" : "Authenticate"}</button>
+                  <button onClick={() => testSavedConnection(connection)} disabled={connectionBusyId === connection.id || connection.status !== "connected"}>Test</button>
+                  <button onClick={() => removeConnection(connection.id)} disabled={usageCount > 0 || connectionBusyId === connection.id} title={usageCount ? `Used by ${usageCount} workflow steps` : "Remove connection"}>×</button>
+                </div>
               </article>;
             })}
-            {!connections.length && !showConnectionForm && <div className="connection-empty"><span>⌁</span><strong>No connection setups</strong><p>Add Gmail or Outlook. It will remain clearly marked “Authentication required” until OAuth actually completes.</p></div>}
+            {!connections.length && !showConnectionForm && <div className="connection-empty"><span>⌁</span><strong>No connections yet</strong><p>Add Gmail, Outlook, Slack, Calendar, Notion, or a webhook. OAuth providers remain marked “Authentication required” until the provider callback completes.</p></div>}
           </div>
         </aside>}
 
@@ -2134,7 +2360,7 @@ export default function Home() {
                       <label className="field-label">Sample message<textarea rows={7} value={selectedNode.config.emailBody ?? ""} onChange={(event) => updateConfig("emailBody", event.target.value)} /></label>
                     </> : <>
                       <div className="runtime-notice needs-connection"><span>!</span><div><strong>Authenticated connection required</strong><p>A saved setup is not enough. The graph stays blocked until OAuth succeeds and the connector passes a real test.</p></div></div>
-                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select a connection</option>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
+                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select an email connection</option>{emailConnections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
                       <button className="manage-connections-button" onClick={() => { setSelectedId(""); setSidePanel("connections"); }}>Manage connections</button>
                     </>}
                   </div>
@@ -2146,7 +2372,7 @@ export default function Home() {
                     <div className="mode-switch" role="group" aria-label="Draft destination mode"><button className={(selectedNode.config.deliveryMode ?? "preview") === "preview" ? "active" : ""} onClick={() => updateConfig("deliveryMode", "preview")}>Preview only</button><button className={selectedNode.config.deliveryMode === "connection" ? "active" : ""} onClick={() => updateConfig("deliveryMode", "connection")}>Create in mailbox</button></div>
                     {(selectedNode.config.deliveryMode ?? "preview") === "preview" ? <div className="runtime-notice is-local"><span>i</span><div><strong>Local preview only</strong><p>The result is shown inside Flowcraft. Nothing is saved to a provider and nothing is sent.</p></div></div> : <>
                       <div className="runtime-notice needs-connection"><span>!</span><div><strong>Authenticated connection required</strong><p>Creating a provider draft is a real side effect. Execution stays blocked until OAuth and a connector test succeed.</p></div></div>
-                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select a connection</option>{connections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
+                      <label className="field-label">Credential to connect with<select value={selectedNode.config.connectionId ?? ""} onChange={(event) => updateConfig("connectionId", event.target.value)}><option value="">Select an email connection</option>{emailConnections.map((connection) => <option value={connection.id} key={connection.id}>{connection.name} · {connectionStatusLabel(connection.status)}</option>)}</select></label>
                       <button className="manage-connections-button" onClick={() => { setSelectedId(""); setSidePanel("connections"); }}>Manage connections</button>
                     </>}
                     <label className="field-label">Draft recipient<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>

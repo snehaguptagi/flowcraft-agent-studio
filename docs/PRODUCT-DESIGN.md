@@ -82,13 +82,15 @@ Flowcraft includes five runnable starting points:
 
 Every template communicates its outcome before its mechanics. The gallery shows the category, intended result, description, and number of connected steps. Loading a template replaces the current canvas with a configured local workflow; it never implies that a cloud provider is connected.
 
-## Email credential model
+## Connection model
 
-- Credentials live separately from workflow graphs; email nodes reference a credential ID.
-- A user may create a Gmail or Outlook setup record, but it remains **Authentication required** until OAuth completes.
+- Connections live separately from workflow graphs; nodes reference a connection ID.
+- A user may create Gmail, Outlook, Slack, Google Calendar, Notion, or webhook setup records, but OAuth providers remain **Authentication required** until OAuth completes.
+- The deployed server vault stores connection metadata and short-lived OAuth state in D1.
+- Provider tokens are encrypted server-side and never stored in browser storage, workflow exports, logs, or node configuration.
 - **Sample email:** editable local test data, never described as a mailbox or credential.
 - **Preview draft:** local output with no provider side effect.
-- **Connected provider:** future server-backed OAuth state with minimum read-and-draft permissions and a successful provider test.
+- **Connected provider:** server-backed OAuth state with provider scopes, account identity, and a successful provider test.
 - **Expired / error:** visible warning and blocked execution.
 
-Sending remains outside the workflow. After the live connector exists, the product may prepare and save a draft, but a human must review and send it in the email provider.
+Email nodes only accept email-capable connections. A live email workflow may read the latest inbox message and create a provider draft. Sending remains outside the workflow; a human must review and send in the email provider.
