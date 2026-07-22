@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 const baseMetadata: Metadata = {
   title: "Flowcraft — AI Workflow Builder",
-  description: "Build, connect, run, and inspect reusable AI workflows on a visual canvas.",
+  description: "Build, test, and reuse professional AI workflows—from inbox triage to review-ready email drafts.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
@@ -35,13 +35,13 @@ export async function generateMetadata(): Promise<Metadata> {
     openGraph: {
       type: "website",
       title: "Flowcraft — AI Workflow Builder",
-      description: "Build, connect, run, and inspect reusable AI workflows on a visual canvas.",
-      images: [{ url: socialImage, width: 1200, height: 630, alt: "Flowcraft visual AI workflow builder" }],
+      description: "Build, test, and reuse professional AI workflows—from inbox triage to review-ready email drafts.",
+      images: [{ url: socialImage, width: 1200, height: 630, alt: "Flowcraft inbox-to-draft AI workflow" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "Flowcraft — AI Workflow Builder",
-      description: "Build, connect, run, and inspect reusable AI workflows on a visual canvas.",
+      description: "Build, test, and reuse professional AI workflows—from inbox triage to review-ready email drafts.",
       images: [socialImage],
     },
   };

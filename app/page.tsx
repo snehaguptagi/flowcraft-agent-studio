@@ -61,6 +61,11 @@ type NodeConfig = {
   dataName?: string;
   dataMimeType?: DataInput["mimeType"];
   dataContent?: string;
+  mailboxProvider?: "Demo mailbox" | "Gmail" | "Outlook";
+  emailFrom?: string;
+  emailTo?: string;
+  emailSubject?: string;
+  emailBody?: string;
 };
 
 type WorkflowNode = {
@@ -118,11 +123,25 @@ type CatalogItem = {
   availability?: "ready" | "planned";
 };
 
-const STORAGE_KEY = "flowcraft-ai-workflow-v6";
+type WorkflowTemplate = {
+  id: string;
+  name: string;
+  shortName: string;
+  outcome: string;
+  description: string;
+  category: string;
+  mark: string;
+  accent: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+};
+
+const STORAGE_KEY = "flowcraft-ai-workflow-v7";
 const NODE_WIDTH = 232;
 const PORT_Y = 58;
 const recommendedNodeTypes = new Set([
   "text-input",
+  "email-trigger",
   "file-upload",
   "prompt",
   "llm",
@@ -130,10 +149,25 @@ const recommendedNodeTypes = new Set([
   "if-else",
   "chat-output",
   "json-output",
+  "email-draft",
 ]);
 
 const catalog: CatalogItem[] = [
   { type: "text-input", name: "Text input", category: "Input", description: "Collect a text value", mark: "T", config: { value: "How can I reset a locked workspace?" } },
+  {
+    type: "email-trigger",
+    name: "New email",
+    category: "Input",
+    description: "Start when a mailbox receives an email",
+    mark: "@",
+    config: {
+      mailboxProvider: "Demo mailbox",
+      emailFrom: "maya@northstar.example",
+      emailTo: "support@flowcraft.example",
+      emailSubject: "Unable to access our workspace",
+      emailBody: "Hi team, our workspace locked after several sign-in attempts. We have a customer presentation in two hours. Can you help us restore access? Thanks, Maya",
+    },
+  },
   {
     type: "file-upload",
     name: "Text document",
@@ -243,62 +277,145 @@ const catalog: CatalogItem[] = [
   { type: "markdown-output", name: "Markdown output", category: "Output", description: "Render formatted content", mark: "MD", config: { format: "Markdown" } },
   { type: "json-output", name: "JSON output", category: "Output", description: "Return machine-ready JSON", mark: "J", config: { format: "JSON" } },
   { type: "download-output", name: "Download", category: "Output", description: "Create a downloadable file", mark: "↓", config: { format: "TXT" } },
+  { type: "email-draft", name: "Save email draft", category: "Output", description: "Create a reviewable mailbox draft", mark: "✉", config: { mailboxProvider: "Demo mailbox", emailTo: "maya@northstar.example", format: "Email draft" } },
 ];
 
 const initialNodes: WorkflowNode[] = [
   {
-    id: "input-1",
-    type: "text-input",
+    id: "email-in",
+    type: "email-trigger",
     category: "Input",
-    name: "Manual trigger",
-    description: "Start with sample customer input",
-    x: 36,
-    y: 184,
-    status: "idle",
-    config: { value: "How can I reset a locked workspace?" },
-  },
-  {
-    id: "prompt-1",
-    type: "prompt",
-    category: "AI",
-    name: "Build prompt",
-    description: "Build a reusable prompt",
-    x: 300,
+    name: "New email",
+    description: "Receive a customer email",
+    x: 28,
     y: 184,
     status: "idle",
     config: {
-      prompt: "Answer clearly using only the retrieved help-center context. Include the exact next step.",
-      variables: "question, context",
+      mailboxProvider: "Demo mailbox",
+      emailFrom: "maya@northstar.example",
+      emailTo: "support@flowcraft.example",
+      emailSubject: "Unable to access our workspace",
+      emailBody: "Hi team, our workspace locked after several sign-in attempts. We have a customer presentation in two hours. Can you help us restore access? Thanks, Maya",
     },
   },
   {
-    id: "llm-1",
-    type: "llm",
+    id: "email-triage",
+    type: "classification",
     category: "AI",
-    name: "Generate answer",
-    description: "Generate with the local demo runtime",
-    x: 564,
+    name: "Triage email",
+    description: "Detect intent and urgency",
+    x: 278,
     y: 184,
     status: "idle",
-    config: { provider: "Demo runtime", model: "Local response model", temperature: 0.3, maxTokens: 900 },
+    config: { value: "intent, urgency, sentiment", format: "Email triage" },
   },
   {
-    id: "output-1",
-    type: "chat-output",
-    category: "Output",
-    name: "Return response",
-    description: "Display a chat response",
-    x: 828,
+    id: "email-context",
+    type: "rag",
+    category: "AI",
+    name: "Find policy context",
+    description: "Retrieve the approved answer source",
+    x: 528,
     y: 184,
     status: "idle",
-    config: { format: "Chat" },
+    config: { model: "Help center search", maxTokens: 1200, format: "Email context" },
+  },
+  {
+    id: "email-draft",
+    type: "llm",
+    category: "AI",
+    name: "Draft reply",
+    description: "Write a grounded reply",
+    x: 778,
+    y: 184,
+    status: "idle",
+    config: {
+      provider: "Demo runtime",
+      model: "Local response model",
+      temperature: 0.2,
+      maxTokens: 700,
+      prompt: "Draft a concise, empathetic reply using only the approved context. Give the exact recovery steps and do not claim the issue is already fixed.",
+      format: "Email draft",
+    },
+  },
+  {
+    id: "email-out",
+    type: "email-draft",
+    category: "Output",
+    name: "Save draft",
+    description: "Save for human review — never auto-send",
+    x: 1028,
+    y: 184,
+    status: "idle",
+    config: { mailboxProvider: "Demo mailbox", emailTo: "maya@northstar.example", format: "Email draft" },
   },
 ];
 
 const initialEdges: WorkflowEdge[] = [
-  { id: "e-input-prompt", from: "input-1", to: "prompt-1" },
-  { id: "e-prompt-llm", from: "prompt-1", to: "llm-1" },
-  { id: "e-llm-output", from: "llm-1", to: "output-1" },
+  { id: "e-email-triage", from: "email-in", to: "email-triage" },
+  { id: "e-triage-context", from: "email-triage", to: "email-context" },
+  { id: "e-context-draft", from: "email-context", to: "email-draft" },
+  { id: "e-draft-save", from: "email-draft", to: "email-out" },
+];
+
+const supportNodes: WorkflowNode[] = [
+  { id: "support-in", type: "text-input", category: "Input", name: "Customer question", description: "Start with a support question", x: 36, y: 184, status: "idle", config: { value: "How can I reset a locked workspace?" } },
+  { id: "support-prompt", type: "prompt", category: "AI", name: "Build prompt", description: "Apply the support policy", x: 300, y: 184, status: "idle", config: { prompt: "Answer clearly using only the retrieved help-center context. Include the exact next step.", variables: "question, context" } },
+  { id: "support-ai", type: "llm", category: "AI", name: "Generate answer", description: "Generate with the local demo runtime", x: 564, y: 184, status: "idle", config: { provider: "Demo runtime", model: "Local response model", temperature: 0.3, maxTokens: 900, format: "Support answer" } },
+  { id: "support-out", type: "chat-output", category: "Output", name: "Return response", description: "Display a chat response", x: 828, y: 184, status: "idle", config: { format: "Chat" } },
+];
+
+const supportEdges: WorkflowEdge[] = [
+  { id: "e-support-prompt", from: "support-in", to: "support-prompt" },
+  { id: "e-support-ai", from: "support-prompt", to: "support-ai" },
+  { id: "e-support-out", from: "support-ai", to: "support-out" },
+];
+
+const meetingNodes: WorkflowNode[] = [
+  { id: "meeting-in", type: "text-input", category: "Input", name: "Meeting transcript", description: "Use a sample product meeting", x: 36, y: 184, status: "idle", config: { value: "Priya: Launch remains Friday. Marco will finish onboarding copy by Wednesday. Jules will verify analytics by Thursday. Risk: legal approval is still pending; Priya will follow up today." } },
+  { id: "meeting-summary", type: "summarizer", category: "AI", name: "Summarize meeting", description: "Capture decisions and risks", x: 300, y: 184, status: "idle", config: { prompt: "Summarize decisions, owners, dates, and unresolved risks.", format: "Meeting summary" } },
+  { id: "meeting-actions", type: "llm", category: "AI", name: "Create action list", description: "Turn discussion into owned tasks", x: 564, y: 184, status: "idle", config: { provider: "Demo runtime", model: "Local response model", temperature: 0.1, maxTokens: 600, format: "Meeting actions" } },
+  { id: "meeting-out", type: "markdown-output", category: "Output", name: "Publish notes", description: "Return reviewable meeting notes", x: 828, y: 184, status: "idle", config: { format: "Markdown" } },
+];
+
+const meetingEdges: WorkflowEdge[] = [
+  { id: "e-meeting-summary", from: "meeting-in", to: "meeting-summary" },
+  { id: "e-meeting-actions", from: "meeting-summary", to: "meeting-actions" },
+  { id: "e-meeting-out", from: "meeting-actions", to: "meeting-out" },
+];
+
+const leadNodes: WorkflowNode[] = [
+  { id: "lead-in", type: "text-input", category: "Input", name: "New lead form", description: "Receive a realistic inbound lead", x: 36, y: 184, status: "idle", config: { value: "Avery Chen, Operations Director at Northstar Labs, 240 employees. Needs AI workflow automation for support and finance. Timeline: this quarter. Budget approved." } },
+  { id: "lead-score", type: "classification", category: "AI", name: "Score lead", description: "Evaluate fit and purchase intent", x: 300, y: 184, status: "idle", config: { value: "company size, role, need, timing, budget", format: "Lead score" } },
+  { id: "lead-next", type: "llm", category: "AI", name: "Recommend next action", description: "Create a useful sales handoff", x: 564, y: 184, status: "idle", config: { provider: "Demo runtime", model: "Local response model", temperature: 0.2, maxTokens: 500, format: "Lead follow-up" } },
+  { id: "lead-out", type: "json-output", category: "Output", name: "Return CRM record", description: "Create structured handoff data", x: 828, y: 184, status: "idle", config: { format: "JSON" } },
+];
+
+const leadEdges: WorkflowEdge[] = [
+  { id: "e-lead-score", from: "lead-in", to: "lead-score" },
+  { id: "e-lead-next", from: "lead-score", to: "lead-next" },
+  { id: "e-lead-out", from: "lead-next", to: "lead-out" },
+];
+
+const documentNodes: WorkflowNode[] = [
+  { ...catalog.find((item) => item.type === "file-upload")!, id: "document-in", category: "Input", name: "Policy document", description: "Load the included access policy", x: 36, y: 184, status: "idle" } as WorkflowNode,
+  { id: "document-search", type: "rag", category: "AI", name: "Find relevant sections", description: "Retrieve grounded evidence", x: 300, y: 184, status: "idle", config: { model: "Hybrid search", maxTokens: 1200, format: "Document context" } },
+  { id: "document-answer", type: "llm", category: "AI", name: "Answer with evidence", description: "Respond from the document only", x: 564, y: 184, status: "idle", config: { provider: "Demo runtime", model: "Local response model", temperature: 0.1, maxTokens: 700, format: "Document answer" } },
+  { id: "document-out", type: "chat-output", category: "Output", name: "Return cited answer", description: "Show the grounded response", x: 828, y: 184, status: "idle", config: { format: "Chat" } },
+];
+
+const documentEdges: WorkflowEdge[] = [
+  { id: "e-document-search", from: "document-in", to: "document-search" },
+  { id: "e-document-answer", from: "document-search", to: "document-answer" },
+  { id: "e-document-out", from: "document-answer", to: "document-out" },
+];
+
+const workflowTemplates: WorkflowTemplate[] = [
+  { id: "email", name: "Inbox triage & draft reply", shortName: "Email drafting", outcome: "Turn a new inbox message into a grounded, reviewable draft", description: "Classify urgency, retrieve approved context, draft a reply, and save it without auto-sending.", category: "Customer operations", mark: "@", accent: "#ff6d5a", nodes: initialNodes, edges: initialEdges },
+  { id: "support", name: "Customer support answer", shortName: "Support reply", outcome: "Answer a customer question consistently", description: "Apply a reusable support prompt and return a clear response.", category: "Customer support", mark: "CS", accent: "#5c6ac4", nodes: supportNodes, edges: supportEdges },
+  { id: "meeting", name: "Meeting notes & actions", shortName: "Meeting notes", outcome: "Convert discussion into decisions, owners, and deadlines", description: "Summarize a transcript and publish a clean action list.", category: "Team productivity", mark: "MN", accent: "#2f9e78", nodes: meetingNodes, edges: meetingEdges },
+  { id: "lead", name: "Lead qualification", shortName: "Lead scoring", outcome: "Score an inbound lead and prepare a structured handoff", description: "Evaluate fit, recommend the next action, and return CRM-ready JSON.", category: "Sales", mark: "LQ", accent: "#9b59c4", nodes: leadNodes, edges: leadEdges },
+  { id: "document", name: "Document Q&A", shortName: "Document Q&A", outcome: "Answer a question using a controlled source", description: "Retrieve relevant policy text and generate a grounded answer.", category: "Knowledge", mark: "DQ", accent: "#3c78d8", nodes: documentNodes, edges: documentEdges },
 ];
 
 const categoryOrder: NodeCategory[] = ["Input", "AI", "Logic", "Agent", "Output"];
@@ -372,19 +489,20 @@ export default function Home() {
   const [nodes, setNodes] = useState<WorkflowNode[]>(initialNodes);
   const [edges, setEdges] = useState<WorkflowEdge[]>(initialEdges);
   const [selectedId, setSelectedId] = useState<string>("");
-  const [workflowName, setWorkflowName] = useState("Demo · Customer support reply");
+  const [workflowName, setWorkflowName] = useState("Demo · Inbox triage & draft reply");
+  const [currentTemplateId, setCurrentTemplateId] = useState<string | null>("email");
   const [search, setSearch] = useState("");
   const [libraryView, setLibraryView] = useState<"recommended" | "all">("recommended");
   const [showAdvancedNodes, setShowAdvancedNodes] = useState(false);
-  const [sidePanel, setSidePanel] = useState<"nodes" | "executions" | null>(null);
+  const [sidePanel, setSidePanel] = useState<"nodes" | "templates" | "executions" | null>(null);
   const [addAfterId, setAddAfterId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(0.9);
-  const [pan, setPan] = useState({ x: 28, y: 54 });
+  const [zoom, setZoom] = useState(0.82);
+  const [pan, setPan] = useState({ x: 18, y: 66 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
   const [connectionPointer, setConnectionPointer] = useState<{ x: number; y: number } | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([
-    { id: "ready", time: "Ready", level: "info", message: "Demo workflow ready: question → prompt → model → reply." },
+    { id: "ready", time: "Ready", level: "info", message: "Flagship demo ready: new email → triage → context → draft → review." },
   ]);
   const [consoleTab, setConsoleTab] = useState<"logs" | "trace" | "outputs" | "errors">("logs");
   const [consoleOpen, setConsoleOpen] = useState(false);
@@ -417,6 +535,7 @@ export default function Home() {
   const connectionDragRef = useRef<{ from: string; startX: number; startY: number } | null>(null);
 
   const selectedNode = nodes.find((node) => node.id === selectedId) ?? null;
+  const currentTemplate = workflowTemplates.find((template) => template.id === currentTemplateId) ?? null;
   const selectedInputNodes = selectedNode
     ? edges
         .filter((edge) => edge.to === selectedNode.id)
@@ -437,11 +556,16 @@ export default function Home() {
         const stored = window.localStorage.getItem(STORAGE_KEY);
         const storedTheme = window.localStorage.getItem(`${STORAGE_KEY}-theme`);
         if (stored) {
-          const parsed = JSON.parse(stored) as Snapshot & { name?: string };
+          const parsed = JSON.parse(stored) as Snapshot & { name?: string; templateId?: string | null };
           if (Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
             setNodes(parsed.nodes);
             setEdges(parsed.edges);
             if (parsed.name) setWorkflowName(parsed.name);
+            const matchingTemplate = workflowTemplates.find((template) =>
+              template.nodes.length === parsed.nodes.length &&
+              template.nodes.every((templateNode) => parsed.nodes.some((node) => node.id === templateNode.id)),
+            );
+            setCurrentTemplateId(matchingTemplate?.id ?? null);
           }
         }
         setDarkMode(storedTheme === "dark");
@@ -455,8 +579,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, nodes, edges }));
-  }, [workflowName, nodes, edges]);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, templateId: currentTemplateId, nodes, edges }));
+  }, [workflowName, currentTemplateId, nodes, edges]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
@@ -627,7 +751,7 @@ export default function Home() {
     setNodes((current) => current.map((node) => (node.id === id ? { ...node, ...patch } : node)));
   }, []);
 
-  const updateConfig = useCallback((key: keyof NodeConfig, value: string | number | string[]) => {
+  const updateConfig = useCallback((key: keyof NodeConfig, value: string | number | boolean | string[]) => {
     if (!selectedNode) return;
     setNodes((current) =>
       current.map((node) =>
@@ -829,6 +953,20 @@ export default function Home() {
         issues.push(`${node.name} needs an input connection.`);
       }
       if (node.type === "text-input" && !node.config.value?.trim()) issues.push(`${node.name} is missing text.`);
+      if (node.type === "email-trigger") {
+        if (!node.config.emailFrom?.trim() || !node.config.emailSubject?.trim() || !node.config.emailBody?.trim()) {
+          issues.push(`${node.name} needs a sender, subject, and message body.`);
+        }
+        if (node.config.mailboxProvider !== "Demo mailbox") {
+          issues.push(`${node.name} uses ${node.config.mailboxProvider}, but that mailbox is not connected yet. Choose Demo mailbox to test locally.`);
+        }
+      }
+      if (node.type === "email-draft") {
+        if (!node.config.emailTo?.trim()) issues.push(`${node.name} needs a recipient.`);
+        if (node.config.mailboxProvider !== "Demo mailbox") {
+          issues.push(`${node.name} uses ${node.config.mailboxProvider}, but that mailbox is not connected yet. Choose Demo mailbox to test locally.`);
+        }
+      }
       if (node.type === "file-upload" && !node.config.documentContent?.trim()) {
         issues.push(`${node.name} needs document text.`);
       }
@@ -913,21 +1051,38 @@ export default function Home() {
       case "text-input":
       case "url-input":
         return node.config.value || "Input received";
+      case "email-trigger":
+        return `From: ${node.config.emailFrom}\nTo: ${node.config.emailTo}\nSubject: ${node.config.emailSubject}\n\n${node.config.emailBody}`;
       case "file-upload":
         return node.config.documentContent || "Document text required";
       case "data-input":
         return node.config.dataContent || "Dataset required";
       case "rag":
-        return "Matched 3 help-center passages: Workspace access, owner recovery, and security verification.";
+        return `Approved context\n• Restore access from Workspace settings → Security.\n• A workspace owner can start account recovery if settings are unavailable.\n• The verification email expires after 30 minutes.\n\nIncoming data\n${input.slice(0, 520)}`;
       case "prompt":
         return `Instruction prepared: ${node.config.prompt}\n\nQuestion: ${input.slice(0, 180)}`;
       case "llm":
+        if (node.config.format === "Email draft") {
+          return "Subject: Re: Unable to access our workspace\n\nHi Maya,\n\nI’m sorry you’re blocked right before your presentation. Open Workspace settings → Security and choose Restore access. If you can’t reach settings, ask a workspace owner to start account recovery for you. Please complete the verification email within 30 minutes.\n\nBest,\nSupport team";
+        }
+        if (node.config.format === "Meeting actions") {
+          return "# Product launch notes\n\n**Decision:** Launch remains Friday.\n\n## Actions\n- Marco — finish onboarding copy by Wednesday\n- Jules — verify analytics by Thursday\n- Priya — follow up on legal approval today\n\n**Risk:** Legal approval is still pending.";
+        }
+        if (node.config.format === "Lead follow-up") {
+          return "Recommended action: Schedule a 30-minute discovery call within one business day. Focus on support and finance workflows, confirm the approved budget, and bring an implementation specialist because the buyer wants to launch this quarter.";
+        }
+        if (node.config.format === "Document answer") {
+          return "Users can restore access from Workspace settings → Security → Restore access. If settings are unavailable, a workspace owner can initiate recovery. The verification email must be completed within 30 minutes. Source: Workspace Access Policy — Recovery steps, Owner escalation, Verification window.";
+        }
         return "To reset a locked workspace, open Workspace settings → Security → Restore access. If you cannot reach settings, ask a workspace owner to start account recovery and complete the verification email within 30 minutes.";
       case "summarizer":
+        if (node.config.format === "Meeting summary") return "Launch remains Friday. Onboarding copy is due Wednesday, analytics verification is due Thursday, and legal approval is the only open risk.";
         return `Summary: ${input.slice(0, 220)}`;
       case "translator":
         return `[${node.config.value || "Translated"}] ${input}`;
       case "classification":
+        if (node.config.format === "Email triage") return `${input}\n\nTriage\nIntent: account access\nUrgency: high\nSentiment: concerned\nConfidence: 0.96`;
+        if (node.config.format === "Lead score") return `${input}\n\nLead score: 86/100\nFit: strong\nIntent: high\nPriority: contact within 1 business day`;
         return "access · confidence 0.94";
       case "structured-output":
       case "json-output":
@@ -940,6 +1095,8 @@ export default function Home() {
         return "Vector generated · 1,536 dimensions";
       case "merge":
         return input;
+      case "email-draft":
+        return `Draft saved to ${node.config.mailboxProvider || "Demo mailbox"} for ${node.config.emailTo}.\n\n${input}\n\nStatus: Ready for human review · Not sent`;
       default:
         return input || `${node.name} completed`;
     }
@@ -955,6 +1112,10 @@ export default function Home() {
     }
     if (node.category === "AI" && node.config.provider && node.config.provider !== "Demo runtime") {
       showToast(`Connect ${node.config.provider} or choose Demo runtime first`);
+      return;
+    }
+    if (["email-trigger", "email-draft"].includes(node.type) && node.config.mailboxProvider !== "Demo mailbox") {
+      showToast(`Connect ${node.config.mailboxProvider} or choose Demo mailbox first`);
       return;
     }
 
@@ -1298,7 +1459,8 @@ export default function Home() {
       if (!Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) throw new Error("Invalid workflow");
       commit(parsed.nodes, parsed.edges);
       if (parsed.name) setWorkflowName(parsed.name);
-      setSelectedId(parsed.nodes[0]?.id ?? "");
+      setSelectedId("");
+      setCurrentTemplateId(null);
       showToast("Workflow imported");
     } catch {
       showToast("That file is not a valid workflow");
@@ -1306,25 +1468,31 @@ export default function Home() {
     event.target.value = "";
   };
 
-  const loadDemoWorkflow = () => {
-    commit(cloneSnapshot(initialNodes, initialEdges).nodes, cloneSnapshot(initialNodes, initialEdges).edges);
-    setWorkflowName("Demo · Customer support reply");
+  const loadTemplate = (templateId: string) => {
+    const template = workflowTemplates.find((candidate) => candidate.id === templateId);
+    if (!template) return;
+    const snapshot = cloneSnapshot(template.nodes, template.edges);
+    commit(snapshot.nodes, snapshot.edges);
+    setWorkflowName(`Demo · ${template.shortName}`);
+    setCurrentTemplateId(template.id);
     setSelectedId("");
-    setLogs([{ id: "ready-demo", time: "Ready", level: "info", message: "Demo loaded: question → prompt → model → reply." }]);
+    setLogs([{ id: `ready-${template.id}`, time: "Ready", level: "info", message: `${template.name} ready · ${template.nodes.length} connected steps.` }]);
     setConnectFrom(null);
     setSelectedEdgeId(null);
     setConsoleOpen(false);
+    setRunDuration(null);
     setLibraryView("recommended");
     setShowAdvancedNodes(false);
     setSidePanel(null);
-    setZoom(0.9);
-    setPan({ x: 28, y: 54 });
-    showToast("Demo loaded — press Test workflow");
+    setZoom(template.nodes.length > 4 ? 0.82 : 0.9);
+    setPan({ x: template.nodes.length > 4 ? 18 : 28, y: 66 });
+    showToast(`${template.shortName} loaded — press Test workflow`);
   };
 
   const newWorkflow = () => {
     commit([], []);
     setWorkflowName("Untitled workflow");
+    setCurrentTemplateId(null);
     setSelectedId("");
     setSelectedEdgeId(null);
     setConsoleOpen(false);
@@ -1401,6 +1569,7 @@ export default function Home() {
         <button className="rail-logo" onClick={() => setSidePanel(null)} aria-label="Open workflow editor"><span>F</span></button>
         <button className={!sidePanel ? "active" : ""} onClick={() => setSidePanel(null)} title="Editor"><span>◇</span><small>Editor</small></button>
         <button className={sidePanel === "nodes" ? "active" : ""} onClick={() => { setAddAfterId(null); setSidePanel((panel) => panel === "nodes" ? null : "nodes"); }} title="Add node"><span>＋</span><small>Nodes</small></button>
+        <button className={sidePanel === "templates" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "templates" ? null : "templates")} title="Workflow templates"><span>▦</span><small>Demos</small></button>
         <button className={sidePanel === "executions" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "executions" ? null : "executions")} title="Executions"><span>≡</span><small>Runs</small></button>
         <div className="rail-spacer" />
         <button onClick={newWorkflow} title="New workflow"><span>□</span><small>New</small></button>
@@ -1430,7 +1599,7 @@ export default function Home() {
             <button className="icon-button" onClick={undo} disabled={!undoStack.length || isRunning} aria-label="Undo">↶</button>
             <button className="icon-button" onClick={redo} disabled={!redoStack.length || isRunning} aria-label="Redo">↷</button>
           </div>
-          <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Demo workflow</button>
+          <button className="toolbar-button subtle demo-button" onClick={() => setSidePanel("templates")}><span className="button-icon">▦</span> Templates</button>
           <button className="toolbar-button subtle compact" onClick={() => fileInputRef.current?.click()} aria-label="Import workflow">Import</button>
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
@@ -1504,6 +1673,25 @@ export default function Home() {
           <div className="library-tip"><span>i</span> Click a node to add it, or drag it to an exact place on the canvas.</div>
         </aside>}
 
+        {sidePanel === "templates" && <aside className="templates-panel floating-panel" aria-label="Workflow templates">
+          <div className="panel-heading library-heading">
+            <div><span className="eyebrow">START WITH A WORKING EXAMPLE</span><h2>Workflow templates</h2></div>
+            <button className="mini-button" onClick={() => setSidePanel(null)} aria-label="Close templates">×</button>
+          </div>
+          <p className="templates-intro">Each template is connected, configured, and runnable locally. Open one, test it, then make it yours.</p>
+          <div className="template-list">
+            {workflowTemplates.map((template, index) => (
+              <article className={`template-card ${template.id === currentTemplateId ? "is-current" : ""} ${index === 0 ? "is-featured" : ""}`} key={template.id}>
+                <div className="template-card-top"><span className="template-mark" style={{ background: template.accent }}>{template.mark}</span><span className="template-category">{template.category}</span>{index === 0 && <b>Flagship</b>}</div>
+                <h3>{template.name}</h3>
+                <strong>{template.outcome}</strong>
+                <p>{template.description}</p>
+                <div className="template-card-footer"><span>{template.nodes.length} connected steps</span><button onClick={() => loadTemplate(template.id)}>{template.id === currentTemplateId ? "Reload" : "Use template"}</button></div>
+              </article>
+            ))}
+          </div>
+        </aside>}
+
         {sidePanel === "executions" && <aside className="executions-panel floating-panel" aria-label="Execution history">
           <div className="panel-heading library-heading">
             <div><span className="eyebrow">WORKFLOW RUNS</span><h2>Executions</h2></div>
@@ -1532,7 +1720,7 @@ export default function Home() {
               <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
             </div>
             <div className="canvas-meta">
-              <span className="runtime-pill" title="AI responses use a deterministic local sample until a provider backend is connected"><span /> Local demo</span>
+              <span className="runtime-pill" title="AI and mailbox actions use safe local samples until secure providers are connected"><span /> {currentTemplateId === "email" ? "Local AI · Demo mailbox" : "Local demo"}</span>
               <span className={`health-pill ${graphIssues.length ? "has-errors" : ""}`}>
                 <span /> {graphIssues.length ? `${graphIssues.length} ${graphIssues.length === 1 ? "issue" : "issues"}` : "Graph healthy"}
               </span>
@@ -1554,6 +1742,12 @@ export default function Home() {
             }}
           >
             <div className="canvas-grid" />
+            {currentTemplate && <aside className="workflow-guide" aria-label="Workflow guide">
+              <div><span>READY-TO-RUN DEMO</span><b>{currentTemplate.nodes.length} steps</b></div>
+              <strong>{currentTemplate.outcome}</strong>
+              <p>{currentTemplate.description}</p>
+              <div className="workflow-guide-actions"><button onClick={runWorkflow} disabled={isRunning}><span>{isRunning ? "◌" : "▶"}</span>{isRunning ? "Running…" : "Run this demo"}</button><button onClick={() => setSidePanel("templates")}>Browse templates</button></div>
+            </aside>}
             <div className="world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
               <svg className="edge-layer" viewBox="0 0 1220 720" aria-label="Workflow connections">
                 {edgePaths.map((edge) => edge && (
@@ -1644,6 +1838,10 @@ export default function Home() {
                         <><span>{node.config.model}</span><span>{node.config.temperature} temp</span></>
                       ) : node.type === "prompt" ? (
                         <p>{node.config.prompt}</p>
+                      ) : node.type === "email-trigger" ? (
+                        <p>{node.config.emailSubject}</p>
+                      ) : node.type === "email-draft" ? (
+                        <><span>{node.config.mailboxProvider}</span><span>Review first</span></>
                       ) : ["text-input", "file-upload", "data-input"].includes(node.type) ? (
                         <p>{node.config.value}</p>
                       ) : node.category === "Agent" ? (
@@ -1664,6 +1862,8 @@ export default function Home() {
                             ? `${node.config.allowedTools?.length ?? 0} tools · ${node.config.maxSteps ?? 0} steps`
                             : node.type === "llm"
                               ? "Local demo"
+                              : node.type === "email-draft" || node.type === "email-trigger"
+                                ? node.config.mailboxProvider
                               : "Configured"}
                       </span>
                       <button className="node-delete" onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`} title={`Delete ${node.name}`}>×</button>
@@ -1709,8 +1909,8 @@ export default function Home() {
               <div className="empty-canvas">
                 <div className="empty-canvas-mark">＋</div>
                 <h3>Start with your first node</h3>
-                <p>Choose a trigger or load the ready-to-run AI workflow.</p>
-                <div className="empty-canvas-actions"><button onClick={() => setSidePanel("nodes")}>Add first step</button><button className="secondary" onClick={loadDemoWorkflow}>Load demo</button></div>
+                <p>Choose a trigger, or start from one of five complete examples.</p>
+                <div className="empty-canvas-actions"><button onClick={() => setSidePanel("nodes")}>Add first step</button><button className="secondary" onClick={() => setSidePanel("templates")}>Browse templates</button></div>
               </div>
             )}
 
@@ -1778,6 +1978,34 @@ export default function Home() {
                     <label className="field-label">Type<input value={selectedNode.category} disabled /></label>
                   </div>
                 </div>
+
+                {selectedNode.type === "email-trigger" && (
+                  <div className="form-section email-form-section">
+                    <div className="form-section-title"><span>Email source</span><span className="required-label">Required</span></div>
+                    <div className={`runtime-notice ${selectedNode.config.mailboxProvider === "Demo mailbox" ? "is-local" : "needs-connection"}`}>
+                      <span>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "✓" : "!"}</span>
+                      <div><strong>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Safe demo mailbox" : `${selectedNode.config.mailboxProvider} connection required`}</strong><p>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Uses the included sample email and never touches a real inbox." : "Live inbox access stays blocked until secure OAuth is configured."}</p></div>
+                    </div>
+                    <label className="field-label">Mailbox<select value={selectedNode.config.mailboxProvider ?? "Demo mailbox"} onChange={(event) => updateConfig("mailboxProvider", event.target.value)}><option>Demo mailbox</option><option>Gmail</option><option>Outlook</option></select></label>
+                    <label className="field-label">From<input value={selectedNode.config.emailFrom ?? ""} onChange={(event) => updateConfig("emailFrom", event.target.value)} /></label>
+                    <label className="field-label">To<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>
+                    <label className="field-label">Subject<input value={selectedNode.config.emailSubject ?? ""} onChange={(event) => updateConfig("emailSubject", event.target.value)} /></label>
+                    <label className="field-label">Sample message<textarea rows={7} value={selectedNode.config.emailBody ?? ""} onChange={(event) => updateConfig("emailBody", event.target.value)} /></label>
+                  </div>
+                )}
+
+                {selectedNode.type === "email-draft" && (
+                  <div className="form-section email-form-section">
+                    <div className="form-section-title"><span>Draft destination</span><span>Review required</span></div>
+                    <div className={`runtime-notice ${selectedNode.config.mailboxProvider === "Demo mailbox" ? "is-local" : "needs-connection"}`}>
+                      <span>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "✓" : "!"}</span>
+                      <div><strong>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Local draft only" : `${selectedNode.config.mailboxProvider} connection required`}</strong><p>{selectedNode.config.mailboxProvider === "Demo mailbox" ? "Creates an inspectable result without sending anything." : "The workflow may create a draft after OAuth, but sending remains a separate human action."}</p></div>
+                    </div>
+                    <label className="field-label">Mailbox<select value={selectedNode.config.mailboxProvider ?? "Demo mailbox"} onChange={(event) => updateConfig("mailboxProvider", event.target.value)}><option>Demo mailbox</option><option>Gmail</option><option>Outlook</option></select></label>
+                    <label className="field-label">Draft recipient<input value={selectedNode.config.emailTo ?? ""} onChange={(event) => updateConfig("emailTo", event.target.value)} /></label>
+                    <div className="safety-contract"><span>✓</span><div><strong>Human-in-the-loop boundary</strong><p>This node creates a draft. It never sends an email automatically.</p></div></div>
+                  </div>
+                )}
 
                 {selectedNode.category === "Agent" && (
                   <>

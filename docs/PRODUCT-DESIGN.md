@@ -18,6 +18,8 @@ Logic, retrieval, structured output, and data transformations can be added as ex
 - **Contextual node picker:** opens over the canvas only while a user is adding a step.
 - **Focused node editor:** incoming data, editable parameters, and returned output sit together for the selected node.
 - **Run detail drawer:** execution log, optional agent trace, outputs, and errors.
+- **Workflow guide:** a compact outcome statement, step count, and direct run action for the loaded template.
+- **Template gallery:** complete examples organized by real work rather than technical node types.
 
 ## Primary user flow
 
@@ -60,4 +62,30 @@ The editor follows product patterns verified in n8n’s official [feature overvi
 - The node library starts with a short suggested set. Agent nodes live behind an explicit advanced disclosure so deterministic workflows remain the primary mental model.
 - Runtime truth is visible in the interface: the local deterministic demonstration is labeled, and unconfigured live providers cannot silently fall back to a fake response.
 
-The default demo is a complete local workflow: sample customer input → prompt construction → AI response demonstration → returned chat response.
+## Flagship workflow
+
+The default demo is now **Inbox triage & draft reply**:
+
+`New email → Triage email → Find policy context → Draft reply → Save draft`
+
+The final step creates an inspectable draft with a recipient, subject, body, and explicit **Not sent** status. This is the right first email automation because it demonstrates useful end-to-end work while preserving human control over external communication.
+
+## Template system
+
+Flowcraft includes five runnable starting points:
+
+- Inbox triage & draft reply
+- Customer support answer
+- Meeting notes & actions
+- Lead qualification
+- Document Q&A
+
+Every template communicates its outcome before its mechanics. The gallery shows the category, intended result, description, and number of connected steps. Loading a template replaces the current canvas with a configured local workflow; it never implies that a cloud provider is connected.
+
+## Email connection states
+
+- **Demo mailbox:** connected locally, uses the included sample, and never accesses a real account.
+- **Gmail / Outlook not connected:** visible warning and blocked execution.
+- **Connected provider:** future server-backed OAuth state with minimum read-and-draft permissions.
+
+Sending remains outside the workflow. The product may prepare and save a draft, but a human must review and send it in the email provider.

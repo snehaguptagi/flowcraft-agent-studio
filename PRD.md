@@ -1,6 +1,6 @@
 # Flowcraft AI Workflow Builder — Product Requirements Document
 
-**Version:** 3.1
+**Version:** 3.2
 
 **Status:** Approved for workflow-first implementation
 
@@ -36,13 +36,16 @@ Flowcraft should make the complete workflow visible: what enters, which step run
 - Support local creation and demonstration with minimal setup.
 - Keep workflows portable through JSON export and import.
 - Allow optional bounded Agent nodes without making autonomy the default.
+- Let users learn the product through complete, realistic, runnable templates.
+- Make inbox-to-draft email automation the flagship workflow without permitting automatic sending.
 
 ## 5. Non-goals for the MVP
 
 - A fully autonomous multi-agent platform.
 - A Supervisor agent that delegates open-ended work.
 - Unrestricted web browsing, computer control, or arbitrary code execution.
-- Production credential storage or external side effects.
+- Automatic email sending or other unreviewed external side effects.
+- Browser-side storage of provider credentials or refresh tokens.
 - Multi-user editing and enterprise access control.
 - Long-term personal memory or LangMem integration.
 - Using LangGraph for standard fixed workflows.
@@ -102,6 +105,10 @@ A directed edge that moves a value from an upstream node to a downstream node an
 
 One execution of the current workflow, including status, logs, outputs, duration, and errors.
 
+### Template
+
+A complete configured workflow that communicates a concrete outcome and can be run before the user edits it.
+
 ### Agent node
 
 An optional bounded node that may choose among explicitly approved tools over multiple steps. Its internal activity appears in a separate trace.
@@ -157,6 +164,15 @@ An optional bounded node that may choose among explicitly approved tools over mu
 7. Run validation and test the complete workflow.
 8. Inspect execution history, logs, intermediate outputs, final outputs, and errors.
 9. Refine, autosave, export, or import the workflow.
+
+## 10.1 Flagship email journey
+
+1. Receive a new email from the demo mailbox or a connected provider.
+2. Classify intent, urgency, and sentiment.
+3. Retrieve approved policy context.
+4. Draft a grounded, empathetic reply.
+5. Save the result as a draft for human review.
+6. Never send automatically.
 
 ## 11. Functional requirements
 
@@ -217,6 +233,23 @@ An optional bounded node that may choose among explicitly approved tools over mu
 - Preserve a structured, user-visible trace.
 - Do not add Writer or Supervisor agents to the immediate roadmap.
 
+### 11.7 Workflow templates — P0
+
+- Provide Email drafting, Customer support, Meeting notes, Lead qualification, and Document Q&A templates.
+- Show the business outcome, category, description, and number of connected steps before loading.
+- Keep every template configured and runnable with the local demo runtime.
+- Make Email drafting the default flagship workflow.
+
+### 11.8 Email connector — P1
+
+- Support one user-selected provider first: Gmail or Outlook.
+- Use server-side OAuth and store no credentials in browser storage or workflow exports.
+- Request the minimum scopes required to read selected inbox messages and create drafts.
+- Treat message identifiers as idempotency keys so the same email is not processed twice.
+- Show connection, sync, draft-created, and failure states explicitly.
+- Require human review outside the workflow before sending.
+- Block live-provider execution when no secure connection exists; never fall back silently to sample data.
+
 ## 12. Agent selection rule
 
 Use a standard workflow node when the operation and sequence are known. This includes prompting, summarization, classification, translation, extraction, formatting, calculations, and fixed retrieval pipelines.
@@ -275,11 +308,14 @@ The MVP is accepted when:
 
 - A first-time user can recognize the product as an AI workflow builder.
 - The default canvas shows Input → Prompt → Model → Output without an Agent node.
-- A visible Demo workflow control restores a complete runnable workflow.
+- A visible Templates control opens complete runnable workflows.
 - The editor opens canvas-first; the configuration inspector appears only for a selected step and the run console expands when needed.
 - A selected step opens input, parameters, and output together; a supported normal step can be tested independently and its output can be pinned.
 - The contextual plus after a node adds and connects the next selected step.
 - Workflow and step tests appear in execution history with status and duration.
+- The default email template runs through five connected steps and ends with a visible “Ready for human review · Not sent” draft.
+- All five prebuilt templates run successfully with the local demo runtime.
+- Selecting an unconnected Gmail or Outlook mailbox produces a clear validation issue rather than a simulated live run.
 - Suggested nodes cover the normal workflow path, while optional Agent nodes are disclosed as an advanced capability.
 - The local demo runtime is visibly identified and cannot be mistaken for a live provider call.
 - A user can connect two compatible nodes by dragging from the source's right port to the target's left port.
@@ -301,13 +337,15 @@ The MVP is accepted when:
 - Reliable node configuration and graph execution
 - Local setup and clear documentation
 - Public source repository
+- Five runnable workflow templates and the email-drafting flagship
 - Existing optional Research, Document, and Data Analyst nodes
 
 ### Next
 
 - Real server-backed model execution for standard AI nodes
+- First secure email provider connection after the user selects Gmail or Outlook
 - Typed ports and connection compatibility
-- Workflow templates and test cases
+- Template persistence and user-authored template sharing
 - Secure connector abstractions
 - Persisted run history, execution replay, and server-backed debugging
 

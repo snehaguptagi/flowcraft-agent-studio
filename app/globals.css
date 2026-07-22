@@ -1497,3 +1497,45 @@ textarea:focus-visible {
   .node-editor-dialog { grid-template-columns: 210px 360px 240px; overflow: auto; }
   .floating-panel { width: 340px; }
 }
+
+/* Guided demos and reusable templates */
+.templates-panel { width: 410px; }
+.templates-intro { margin: -2px 18px 16px; color: var(--muted); font-size: 10.5px; line-height: 1.55; }
+.template-list { flex: 1; display: grid; align-content: start; gap: 10px; overflow: auto; padding: 0 14px 20px; }
+.template-card { padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.template-card:hover { border-color: var(--line-strong); box-shadow: 0 8px 22px rgba(28, 32, 44, .07); }
+.template-card.is-featured { border-color: color-mix(in srgb, var(--accent) 36%, var(--line)); background: color-mix(in srgb, var(--accent-soft) 32%, var(--panel)); }
+.template-card.is-current { box-shadow: inset 3px 0 0 var(--accent); }
+.template-card-top { display: flex; align-items: center; gap: 8px; }
+.template-mark { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 8px; color: white; font-size: 9px; font-weight: 900; }
+.template-category { flex: 1; color: var(--muted); font-size: 8.5px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; }
+.template-card-top b { padding: 4px 6px; border-radius: 6px; background: var(--accent); color: white; font-size: 7px; text-transform: uppercase; letter-spacing: .05em; }
+.template-card h3 { margin: 11px 0 4px; font-size: 13px; letter-spacing: -.01em; }
+.template-card > strong { display: block; font-size: 10.5px; line-height: 1.45; }
+.template-card > p { margin: 5px 0 11px; color: var(--muted); font-size: 9.5px; line-height: 1.5; }
+.template-card-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px solid var(--line); }
+.template-card-footer span { color: var(--muted); font-size: 8.5px; }
+.template-card-footer button { border: 0; border-radius: 7px; padding: 7px 9px; background: var(--ink); color: var(--panel); cursor: pointer; font-size: 8.5px; font-weight: 800; }
+.template-card.is-featured .template-card-footer button { background: var(--accent); color: white; }
+
+.workflow-guide { position: absolute; z-index: 6; top: 14px; left: 16px; width: 370px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: color-mix(in srgb, var(--panel) 94%, transparent); box-shadow: 0 9px 26px rgba(26, 31, 43, .08); backdrop-filter: blur(12px); }
+.workflow-guide > div:first-child { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.workflow-guide > div:first-child span { color: var(--accent); font-size: 7.5px; font-weight: 900; letter-spacing: .1em; }
+.workflow-guide > div:first-child b { color: var(--muted); font-size: 8px; }
+.workflow-guide > strong { display: block; font-size: 12px; line-height: 1.35; }
+.workflow-guide > p { margin: 4px 0 9px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+.workflow-guide-actions { display: flex; gap: 7px; }
+.workflow-guide-actions button { height: 28px; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line); border-radius: 7px; padding: 0 9px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 8.5px; font-weight: 800; }
+.workflow-guide-actions button:first-child { border-color: var(--accent); background: var(--accent); color: white; }
+.workflow-guide-actions button:disabled { opacity: .58; cursor: not-allowed; }
+
+.email-form-section { background: color-mix(in srgb, var(--accent-soft) 18%, var(--panel)); }
+.safety-contract { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 9px; padding: 10px; border: 1px solid color-mix(in srgb, var(--green) 28%, var(--line)); border-radius: 9px; background: var(--green-soft); }
+.safety-contract > span { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font-size: 10px; font-weight: 900; }
+.safety-contract strong { display: block; color: var(--green); font-size: 9.5px; }
+.safety-contract p { margin: 3px 0 0; color: var(--muted); font-size: 8.5px; line-height: 1.45; }
+
+@media (max-width: 960px) {
+  .workflow-guide { width: 330px; }
+  .templates-panel { width: 370px; }
+}
