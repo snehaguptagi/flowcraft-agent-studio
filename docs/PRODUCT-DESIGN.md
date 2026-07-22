@@ -12,22 +12,23 @@ Logic, retrieval, structured output, and data transformations can be added as ex
 
 ## Main screen
 
-- **Top bar:** workflow name, autosave state, history, templates, save/export, and run.
-- **Left library:** Input, AI, Logic, optional Agent, and Output nodes.
-- **Canvas:** draggable nodes and visible connections.
-- **Right inspector:** configuration for the selected node.
-- **Bottom console:** execution log, optional agent trace, outputs, and errors.
+- **Top bar:** workflow name, autosave state, demo template, import/export, and workflow test.
+- **Narrow rail:** editor, nodes, executions, new workflow, and theme.
+- **Canvas:** the dominant default view, with draggable nodes, visible connections, contextual plus controls, minimap, and zoom.
+- **Contextual node picker:** opens over the canvas only while a user is adding a step.
+- **Focused node editor:** incoming data, editable parameters, and returned output sit together for the selected node.
+- **Run detail drawer:** execution log, optional agent trace, outputs, and errors.
 
 ## Primary user flow
 
 1. Start from a template or blank canvas.
-2. Add an input node.
-3. Add and configure a prompt or AI transformation.
+2. Add an input node from the contextual picker.
+3. Use the plus after that node to add and auto-connect a prompt or AI transformation.
 4. Add a model node.
 5. Add an output node.
 6. Connect the nodes in execution order.
-7. Validate and run.
-8. Inspect outputs and errors, then save or export the workflow.
+7. Test individual steps, pin known data when useful, then validate and run the workflow.
+8. Review execution history, outputs, and errors, then save or export the workflow.
 
 ## When an Agent node makes sense
 
@@ -41,7 +42,7 @@ Flowcraft should make the simple path obvious and the powerful path available. A
 
 ## Workflow editor interaction model
 
-The editor follows the interaction pattern established by tools such as n8n without copying their branding:
+The editor follows product patterns verified in n8n’s official [feature overview](https://n8n.io/features/), [data-mapping documentation](https://docs.n8n.io/data/data-mapping/data-mapping-ui/), and [execution-history documentation](https://docs.n8n.io/workflows/executions/all-executions/) without copying its branding or exact visual design:
 
 - The canvas is the primary workspace and reads from left to right.
 - The first node is a trigger; the last node is an output.
@@ -49,9 +50,13 @@ The editor follows the interaction pattern established by tools such as n8n with
 - Dragging an output port shows a live connection line; dropping on an input port creates the connection.
 - Clicking an output port and then a highlighted target is an accessible alternative.
 - Selecting a connection exposes a clear delete action.
-- The left panel adds steps, the right panel edits the selected step, and the bottom panel shows run data.
+- The full canvas is the default. The node picker appears only when the user asks to add a step.
+- A small plus after a node opens a contextual next-step picker and auto-connects the chosen node.
+- Selecting a node opens one working surface where upstream data, parameters, and output can be compared directly.
+- Normal steps can be tested independently, and successful output can be pinned as repeatable test data.
+- Executions are a first-class history rather than only transient console messages.
 - **Test workflow** validates the graph, executes it in dependency order, and exposes intermediate and final outputs.
-- The full canvas is the default state. The settings inspector opens only after selecting a step, and the run console remains compact until execution or inspection requires it.
+- The run-detail drawer remains compact until execution or inspection requires it.
 - The node library starts with a short suggested set. Agent nodes live behind an explicit advanced disclosure so deterministic workflows remain the primary mental model.
 - Runtime truth is visible in the interface: the local deterministic demonstration is labeled, and unconfigured live providers cannot silently fall back to a fake response.
 

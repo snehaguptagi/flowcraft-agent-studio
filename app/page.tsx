@@ -74,6 +74,7 @@ type WorkflowNode = {
   status: NodeStatus;
   config: NodeConfig;
   output?: string;
+  pinnedOutput?: string;
   latency?: number;
   agentTrace?: AgentTraceEvent[];
 };
@@ -90,6 +91,16 @@ type LogEntry = {
   level: "info" | "success" | "error";
   node?: string;
   message: string;
+};
+
+type ExecutionRecord = {
+  id: string;
+  mode: "workflow" | "step";
+  status: "success" | "failed";
+  startedAt: string;
+  duration: number;
+  nodeCount: number;
+  summary: string;
 };
 
 type Snapshot = {
@@ -365,7 +376,8 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [libraryView, setLibraryView] = useState<"recommended" | "all">("recommended");
   const [showAdvancedNodes, setShowAdvancedNodes] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [sidePanel, setSidePanel] = useState<"nodes" | "executions" | null>(null);
+  const [addAfterId, setAddAfterId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.9);
   const [pan, setPan] = useState({ x: 28, y: 54 });
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
@@ -378,6 +390,7 @@ export default function Home() {
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [runDuration, setRunDuration] = useState<number | null>(null);
+  const [executionHistory, setExecutionHistory] = useState<ExecutionRecord[]>([]);
   const [darkMode, setDarkMode] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [undoStack, setUndoStack] = useState<Snapshot[]>([]);
@@ -404,6 +417,13 @@ export default function Home() {
   const connectionDragRef = useRef<{ from: string; startX: number; startY: number } | null>(null);
 
   const selectedNode = nodes.find((node) => node.id === selectedId) ?? null;
+  const selectedInputNodes = selectedNode
+    ? edges
+        .filter((edge) => edge.to === selectedNode.id)
+        .map((edge) => nodes.find((node) => node.id === edge.from))
+        .filter((node): node is WorkflowNode => Boolean(node))
+    : [];
+  const selectedInputCount = selectedInputNodes.length || (selectedNode?.category === "Input" ? 1 : 0);
 
   const showToast = useCallback((message: string) => {
     setToast(message);
@@ -422,7 +442,6 @@ export default function Home() {
             setNodes(parsed.nodes);
             setEdges(parsed.edges);
             if (parsed.name) setWorkflowName(parsed.name);
-            if (parsed.nodes[0]) setSelectedId(parsed.nodes[0].id);
           }
         }
         setDarkMode(storedTheme === "dark");
@@ -526,24 +545,30 @@ export default function Home() {
     }
     const id = `${item.type}-${Date.now()}`;
     const offset = nodes.length * 18;
+    const addAfterNode = addAfterId ? nodes.find((node) => node.id === addAfterId) : null;
     const next: WorkflowNode = {
       id,
       type: item.type,
       category: item.category,
       name: item.name,
       description: item.description,
-      x: x ?? 90 + (offset % 360),
-      y: y ?? 90 + (offset % 280),
+      x: x ?? (addAfterNode ? addAfterNode.x + 280 : 90 + (offset % 360)),
+      y: y ?? (addAfterNode ? addAfterNode.y : 90 + (offset % 280)),
       status: "idle",
       config: {
         ...item.config,
         allowedTools: item.config.allowedTools ? [...item.config.allowedTools] : undefined,
       },
     };
-    commit([...nodes, next], edges);
+    const nextEdges = addAfterNode
+      ? [...edges, { id: `edge-${Date.now()}`, from: addAfterNode.id, to: id }]
+      : edges;
+    commit([...nodes, next], nextEdges);
     setSelectedId(id);
+    setAddAfterId(null);
+    setSidePanel(null);
     showToast(`${item.name} added`);
-  }, [commit, edges, nodes, showToast]);
+  }, [addAfterId, commit, edges, nodes, showToast]);
 
   const removeNode = useCallback((id: string) => {
     if (isRunning) return;
@@ -570,7 +595,7 @@ export default function Home() {
       const target = event.target as HTMLElement | null;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setLibraryOpen(true);
+        setSidePanel("nodes");
         window.requestAnimationFrame(() => searchInputRef.current?.focus());
         return;
       }
@@ -579,7 +604,11 @@ export default function Home() {
         event.preventDefault();
         showToast("Workflow saved");
       }
-      if (event.key === "Escape") setConnectFrom(null);
+      if (event.key === "Escape") {
+        setConnectFrom(null);
+        setSelectedId("");
+        setSidePanel(null);
+      }
       if ((event.key === "Delete" || event.key === "Backspace") && selectedEdgeId) {
         event.preventDefault();
         removeEdge(selectedEdgeId);
@@ -916,6 +945,63 @@ export default function Home() {
     }
   };
 
+  const runSingleNode = async (id: string) => {
+    if (isRunning) return;
+    const node = nodes.find((candidate) => candidate.id === id);
+    if (!node) return;
+    if (node.category === "Agent") {
+      showToast("Run the full workflow to execute an agent step safely");
+      return;
+    }
+    if (node.category === "AI" && node.config.provider && node.config.provider !== "Demo runtime") {
+      showToast(`Connect ${node.config.provider} or choose Demo runtime first`);
+      return;
+    }
+
+    const started = performance.now();
+    setIsRunning(true);
+    setNodes((current) => current.map((candidate) => (
+      candidate.id === id ? { ...candidate, status: "running", output: undefined, latency: undefined } : candidate
+    )));
+    addLog({ level: "info", node: node.name, message: "Manual step test started" });
+    const inputValues = edges
+      .filter((edge) => edge.to === id)
+      .map((edge) => nodes.find((candidate) => candidate.id === edge.from))
+      .map((candidate) => candidate?.pinnedOutput ?? candidate?.output ?? candidate?.config.value ?? "");
+    await sleep(320);
+    const output = node.pinnedOutput ?? computeOutput(node, inputValues);
+    const duration = Math.round(performance.now() - started);
+    setNodes((current) => current.map((candidate) => (
+      candidate.id === id ? { ...candidate, status: "completed", output, latency: duration } : candidate
+    )));
+    setExecutionHistory((current) => [{
+      id: `step-${Date.now()}`,
+      mode: "step",
+      status: "success",
+      startedAt: nowLabel(),
+      duration,
+      nodeCount: 1,
+      summary: `${node.name} tested manually`,
+    }, ...current].slice(0, 20));
+    addLog({ level: "success", node: node.name, message: `Step completed in ${duration} ms` });
+    setIsRunning(false);
+    showToast(`${node.name} completed`);
+  };
+
+  const togglePinnedOutput = (node: WorkflowNode) => {
+    if (node.pinnedOutput) {
+      updateNode(node.id, { pinnedOutput: undefined });
+      showToast("Pinned data removed");
+      return;
+    }
+    if (!node.output) {
+      showToast("Run this step before pinning its output");
+      return;
+    }
+    updateNode(node.id, { pinnedOutput: node.output });
+    showToast("Output pinned for future test runs");
+  };
+
   const runWorkflow = async () => {
     if (isRunning) return;
     const issues = validateWorkflow();
@@ -923,6 +1009,15 @@ export default function Home() {
     if (issues.length) {
       setConsoleTab("errors");
       issues.forEach((message) => addLog({ level: "error", message }));
+      setExecutionHistory((current) => [{
+        id: `failed-${Date.now()}`,
+        mode: "workflow",
+        status: "failed",
+        startedAt: nowLabel(),
+        duration: 0,
+        nodeCount: nodes.length,
+        summary: `${issues.length} validation ${issues.length === 1 ? "issue" : "issues"}`,
+      }, ...current].slice(0, 20));
       showToast(`${issues.length} validation ${issues.length === 1 ? "issue" : "issues"}`);
       return;
     }
@@ -961,7 +1056,6 @@ export default function Home() {
     const outputs = new Map<string, string>();
     for (const id of order) {
       const node = nodes.find((candidate) => candidate.id === id)!;
-      setSelectedId(id);
       setNodes((current) => current.map((candidate) => (
         candidate.id === id ? { ...candidate, status: node.category === "Agent" ? "planning" : "running" } : candidate
       )));
@@ -975,7 +1069,11 @@ export default function Home() {
       let output: string;
       let finalStatus: NodeStatus = "completed";
 
-      if (node.type === "research-agent") {
+      if (node.pinnedOutput) {
+        await sleep(140);
+        output = node.pinnedOutput;
+        addLog({ level: "info", node: node.name, message: "Used pinned test data" });
+      } else if (node.type === "research-agent") {
         setConsoleTab("trace");
         const result = await runResearchAgent(
           {
@@ -1167,6 +1265,15 @@ export default function Home() {
     const duration = Math.round(performance.now() - started);
     setRunDuration(duration);
     setIsRunning(false);
+    setExecutionHistory((current) => [{
+      id: `workflow-${Date.now()}`,
+      mode: "workflow",
+      status: "success",
+      startedAt: nowLabel(),
+      duration,
+      nodeCount: order.length,
+      summary: `${workflowName} completed`,
+    }, ...current].slice(0, 20));
     addLog({ level: "success", message: `Workflow completed · ${order.length} nodes · ${duration} ms` });
     showToast("Workflow completed");
   };
@@ -1209,7 +1316,7 @@ export default function Home() {
     setConsoleOpen(false);
     setLibraryView("recommended");
     setShowAdvancedNodes(false);
-    setLibraryOpen(true);
+    setSidePanel(null);
     setZoom(0.9);
     setPan({ x: 28, y: 54 });
     showToast("Demo loaded — press Test workflow");
@@ -1223,7 +1330,7 @@ export default function Home() {
     setConsoleOpen(false);
     setLibraryView("recommended");
     setShowAdvancedNodes(false);
-    setLibraryOpen(true);
+    setSidePanel("nodes");
     setLogs([{ id: "new", time: "Ready", level: "info", message: "Blank workflow created." }]);
     showToast("Blank workflow created");
   };
@@ -1290,6 +1397,15 @@ export default function Home() {
 
   return (
     <main className={`app-shell ${darkMode ? "theme-dark" : ""}`}>
+      <nav className="app-rail" aria-label="Primary navigation">
+        <button className="rail-logo" onClick={() => setSidePanel(null)} aria-label="Open workflow editor"><span>F</span></button>
+        <button className={!sidePanel ? "active" : ""} onClick={() => setSidePanel(null)} title="Editor"><span>◇</span><small>Editor</small></button>
+        <button className={sidePanel === "nodes" ? "active" : ""} onClick={() => { setAddAfterId(null); setSidePanel((panel) => panel === "nodes" ? null : "nodes"); }} title="Add node"><span>＋</span><small>Nodes</small></button>
+        <button className={sidePanel === "executions" ? "active" : ""} onClick={() => setSidePanel((panel) => panel === "executions" ? null : "executions")} title="Executions"><span>≡</span><small>Runs</small></button>
+        <div className="rail-spacer" />
+        <button onClick={newWorkflow} title="New workflow"><span>□</span><small>New</small></button>
+        <button onClick={() => setDarkMode((value) => !value)} title="Toggle theme"><span>{darkMode ? "☀" : "◐"}</span><small>Theme</small></button>
+      </nav>
       <header className="topbar">
         <div className="brand-block">
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
@@ -1317,7 +1433,6 @@ export default function Home() {
           <button className="toolbar-button subtle demo-button" onClick={loadDemoWorkflow}><span className="button-icon">▦</span> Demo workflow</button>
           <button className="toolbar-button subtle compact" onClick={() => fileInputRef.current?.click()} aria-label="Import workflow">Import</button>
           <button className="toolbar-button subtle compact" onClick={exportWorkflow} aria-label="Export workflow">Export</button>
-          <button className="icon-button standalone" onClick={() => setDarkMode((value) => !value)} aria-label="Toggle theme" title="Toggle theme">{darkMode ? "☀" : "◐"}</button>
           <button className="run-button" onClick={runWorkflow} disabled={isRunning || !nodes.length}>
             <span className={isRunning ? "run-spinner" : "play-mark"}>{isRunning ? "" : "▶"}</span>
             {isRunning ? "Executing…" : "Test workflow"}
@@ -1325,14 +1440,14 @@ export default function Home() {
         </div>
       </header>
 
-      <section className={`workspace-grid ${libraryOpen ? "" : "library-collapsed"} ${selectedNode ? "inspector-open" : ""} ${consoleOpen ? "console-open" : ""}`}>
-        <aside className="node-library" aria-label="Node library">
+      <section className={`workspace-grid ${consoleOpen ? "console-open" : ""}`}>
+        {sidePanel === "nodes" && <aside className="node-library floating-panel" aria-label="Node library">
           <div className="panel-heading library-heading">
             <div>
-              <span className="eyebrow">WORKFLOW NODES</span>
-              <h2>Add a step</h2>
+              <span className="eyebrow">{addAfterId ? "ADD AFTER SELECTED STEP" : "ADD TO WORKFLOW"}</span>
+              <h2>{addAfterId ? "What happens next?" : "Choose a node"}</h2>
             </div>
-            <button className="mini-button" onClick={newWorkflow} aria-label="New blank workflow">＋</button>
+            <button className="mini-button" onClick={() => setSidePanel(null)} aria-label="Close node picker">×</button>
           </div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
@@ -1386,15 +1501,34 @@ export default function Home() {
             )}
             {!filteredCatalog.length && <p className="empty-message">No nodes match “{search}”.</p>}
           </div>
-          <div className="library-tip"><span>i</span> Add a step, then drag from its right connector to the next step’s left connector.</div>
-        </aside>
+          <div className="library-tip"><span>i</span> Click a node to add it, or drag it to an exact place on the canvas.</div>
+        </aside>}
+
+        {sidePanel === "executions" && <aside className="executions-panel floating-panel" aria-label="Execution history">
+          <div className="panel-heading library-heading">
+            <div><span className="eyebrow">WORKFLOW RUNS</span><h2>Executions</h2></div>
+            <button className="mini-button" onClick={() => setSidePanel(null)} aria-label="Close executions">×</button>
+          </div>
+          <div className="executions-summary">
+            <span className={`health-pill ${graphIssues.length ? "has-errors" : ""}`}><span />{graphIssues.length ? "Needs attention" : "Ready to test"}</span>
+            <button onClick={runWorkflow} disabled={isRunning || !nodes.length}>Test now</button>
+          </div>
+          <div className="execution-list">
+            {executionHistory.map((execution) => (
+              <button className="execution-row" key={execution.id} onClick={() => { setConsoleTab(execution.status === "failed" ? "errors" : "logs"); setConsoleOpen(true); setSidePanel(null); }}>
+                <span className={`execution-status is-${execution.status}`}>{execution.status === "success" ? "✓" : "!"}</span>
+                <span className="execution-copy"><strong>{execution.mode === "step" ? "Manual step" : "Workflow test"}</strong><small>{execution.summary}</small></span>
+                <span className="execution-meta"><b>{execution.startedAt}</b><small>{execution.duration ? `${execution.duration} ms` : "Not run"}</small></span>
+              </button>
+            ))}
+            {!executionHistory.length && <div className="execution-empty"><span>▶</span><strong>No executions yet</strong><p>Test the demo workflow to see every run here.</p></div>}
+          </div>
+        </aside>}
 
         <section className="canvas-panel">
           <div className="canvas-toolbar">
             <div className="canvas-toolbar-left">
-              <button className="panel-toggle" onClick={() => setLibraryOpen((value) => !value)} aria-label={libraryOpen ? "Hide node library" : "Show node library"}>
-                <span>{libraryOpen ? "‹" : "›"}</span> Nodes
-              </button>
+              <button className="panel-toggle primary-add" onClick={() => { setAddAfterId(null); setSidePanel("nodes"); }} aria-label="Add workflow node"><span>＋</span> Add step</button>
               <div className="breadcrumb"><span>Editor</span><span>›</span><strong>{workflowName || "Untitled"}</strong></div>
             </div>
             <div className="canvas-meta">
@@ -1535,28 +1669,36 @@ export default function Home() {
                       <button className="node-delete" onClick={(event) => { event.stopPropagation(); removeNode(node.id); }} aria-label={`Delete ${node.name}`} title={`Delete ${node.name}`}>×</button>
                     </div>
                     {node.category !== "Output" && (
-                      <button
-                        className={`port output-port ${connectFrom === node.id ? "is-active" : ""}`}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setConnectFrom(node.id);
-                          connectionDragRef.current = {
-                            from: node.id,
-                            startX: event.clientX,
-                            startY: event.clientY,
-                          };
-                          const rect = canvasRef.current?.getBoundingClientRect();
-                          if (rect) {
-                            setConnectionPointer({
-                              x: (event.clientX - rect.left - pan.x) / zoom,
-                              y: (event.clientY - rect.top - pan.y) / zoom,
-                            });
-                          }
-                        }}
-                        aria-label={`Connect from ${node.name}`}
-                        title={`Drag a connection from ${node.name}`}
-                      />
+                      <>
+                        <button
+                          className={`port output-port ${connectFrom === node.id ? "is-active" : ""}`}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setConnectFrom(node.id);
+                            connectionDragRef.current = {
+                              from: node.id,
+                              startX: event.clientX,
+                              startY: event.clientY,
+                            };
+                            const rect = canvasRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setConnectionPointer({
+                                x: (event.clientX - rect.left - pan.x) / zoom,
+                                y: (event.clientY - rect.top - pan.y) / zoom,
+                              });
+                            }
+                          }}
+                          aria-label={`Connect from ${node.name}`}
+                          title={`Drag a connection from ${node.name}`}
+                        />
+                        <button
+                          className="node-quick-add"
+                          onClick={(event) => { event.stopPropagation(); setAddAfterId(node.id); setSidePanel("nodes"); }}
+                          aria-label={`Add a node after ${node.name}`}
+                          title={`Add a node after ${node.name}`}
+                        >＋</button>
+                      </>
                     )}
                   </article>
                 );
@@ -1567,8 +1709,8 @@ export default function Home() {
               <div className="empty-canvas">
                 <div className="empty-canvas-mark">＋</div>
                 <h3>Start with your first node</h3>
-                <p>Drag a node from the library or load the ready-to-run demo.</p>
-                <button onClick={loadDemoWorkflow}>Load demo workflow</button>
+                <p>Choose a trigger or load the ready-to-run AI workflow.</p>
+                <div className="empty-canvas-actions"><button onClick={() => setSidePanel("nodes")}>Add first step</button><button className="secondary" onClick={loadDemoWorkflow}>Load demo</button></div>
               </div>
             )}
 
@@ -1597,14 +1739,30 @@ export default function Home() {
         </section>
 
         {selectedNode && (
-          <aside className="config-panel" aria-label="Node configuration">
+          <div className="node-editor-overlay" role="dialog" aria-modal="true" aria-label={`Edit ${selectedNode.name}`}>
+            <button className="node-editor-backdrop" onClick={() => setSelectedId("")} aria-label="Close node editor" />
+            <div className="node-editor-dialog">
+              <section className="node-data-pane input-data-pane" aria-label="Node input data">
+                <div className="data-pane-header"><span>INPUT</span><b>{selectedInputCount} item{selectedInputCount === 1 ? "" : "s"}</b></div>
+                <div className="data-pane-body">
+                  {selectedInputNodes.map((inputNode) => (
+                    <div className="data-source" key={inputNode.id}>
+                      <div><span className={`node-mark category-${inputNode.category.toLowerCase()}`}>{getItem(inputNode.type).mark}</span><strong>{inputNode.name}</strong>{inputNode.pinnedOutput && <em>Pinned</em>}</div>
+                      <pre>{inputNode.pinnedOutput ?? inputNode.output ?? inputNode.config.value ?? "Run the previous step to inspect its data."}</pre>
+                    </div>
+                  ))}
+                  {!selectedInputNodes.length && selectedNode.category === "Input" && <div className="data-empty"><span>↳</span><strong>This step starts the workflow</strong><p>Its configured value becomes the first data item.</p></div>}
+                  {!selectedInputNodes.length && selectedNode.category !== "Input" && <div className="data-empty"><span>←</span><strong>No input data</strong><p>Connect an earlier step, or test that step first.</p></div>}
+                </div>
+              </section>
+          <aside className="config-panel" aria-label="Node parameters">
             <>
               <div className="config-header">
                 <div>
-                  <span className="eyebrow">STEP SETTINGS</span>
+                  <span className="eyebrow">PARAMETERS</span>
                   <h2>{selectedNode.name}</h2>
                 </div>
-                <button className="mini-button" onClick={() => setSelectedId("")} aria-label="Close configuration">×</button>
+                <div className="config-header-actions"><button className="step-run-button" onClick={() => runSingleNode(selectedNode.id)} disabled={isRunning}><span>▶</span>{isRunning ? "Running…" : "Test step"}</button><button className="mini-button" onClick={() => setSelectedId("")} aria-label="Close configuration">×</button></div>
               </div>
               <div className="selected-node-card">
                 <span className={`node-mark category-${selectedNode.category.toLowerCase()}`}>{getItem(selectedNode.type).mark}</span>
@@ -1797,12 +1955,6 @@ export default function Home() {
                   </div>
                 )}
 
-                <div className="form-section">
-                  <div className="form-section-title"><span>Latest output</span><span>{selectedNode.latency ? `${selectedNode.latency} ms` : "—"}</span></div>
-                  <div className={`output-preview ${selectedNode.output ? "has-output" : ""}`}>
-                    {selectedNode.output ?? "Run the workflow to inspect this node’s output."}
-                  </div>
-                </div>
               </div>
               <div className="config-footer">
                 <span><span className="saved-dot" /> Changes save automatically</span>
@@ -1810,6 +1962,21 @@ export default function Home() {
               </div>
             </>
           </aside>
+              <section className="node-data-pane output-data-pane" aria-label="Node output data">
+                <div className="data-pane-header"><span>OUTPUT</span><b>{selectedNode.output ? "1 item" : "No data"}</b></div>
+                <div className="data-pane-actions">
+                  <button className={selectedNode.pinnedOutput ? "is-pinned" : ""} onClick={() => togglePinnedOutput(selectedNode)} disabled={!selectedNode.output && !selectedNode.pinnedOutput}><span>◆</span>{selectedNode.pinnedOutput ? "Unpin data" : "Pin data"}</button>
+                  <span>{selectedNode.latency ? `${selectedNode.latency} ms` : "Not run"}</span>
+                </div>
+                <div className="data-pane-body">
+                  {selectedNode.pinnedOutput && <div className="pinned-notice"><span>◆</span><div><strong>Using pinned test data</strong><p>Future tests reuse this output and skip this step.</p></div></div>}
+                  {selectedNode.output
+                    ? <div className="output-document"><div><span>json</span><b>1 item</b></div><pre>{selectedNode.output}</pre></div>
+                    : <div className="data-empty"><span>▶</span><strong>No output yet</strong><p>Test this step to inspect the exact data it returns.</p><button onClick={() => runSingleNode(selectedNode.id)} disabled={isRunning}>Test step</button></div>}
+                </div>
+              </section>
+            </div>
+          </div>
         )}
 
         <section className={`console-panel ${consoleOpen ? "is-open" : "is-collapsed"}`} aria-label="Execution console">

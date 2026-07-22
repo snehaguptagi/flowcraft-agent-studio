@@ -11,8 +11,10 @@ Retrieval, classification, translation, logic, and structured-output nodes can b
 ## What is built
 
 - Visual drag-and-connect workflow canvas
-- Input, AI, Logic, optional Agent, and Output node libraries
-- Node configuration, validation, run states, logs, outputs, and error inspection
+- Contextual Input, AI, Logic, optional Agent, and Output node picker
+- Side-by-side input data, parameters, and output data for every selected node
+- Single-step testing, pinned test data, validation, run states, logs, outputs, and errors
+- In-session execution history for workflow and manual step tests
 - Local autosave plus versioned JSON import/export
 - Standard workflow-first starter template
 - Ready-to-run customer-support demo workflow
@@ -39,9 +41,9 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). The canvas and deterministic local workflow demonstration work without environment variables.
 
-Choose **Demo workflow** to restore the ready-to-run example, then press **Test workflow**. To connect nodes, drag the right port of a source node onto the left port of a target node. You can also click the source's right port and then click the highlighted target node. Select a connection to delete it.
+Choose **Demo workflow** to restore the ready-to-run example, then press **Test workflow**. To connect nodes, drag the right port of a source node onto the left port of a target node. You can also click the small **+** after a node to choose and auto-connect the next step. Select a connection to delete it.
 
-The editor is canvas-first: suggested nodes appear first, the step inspector opens only when a node is selected, and the run console stays collapsed until it is needed. Agent nodes are kept under **All nodes → Advanced agent nodes** because they are optional rather than the default workflow model.
+The editor is canvas-first: the node picker opens only when needed, and selecting a node opens one focused editor with its **Input**, **Parameters**, and **Output** together. Use **Test step** to run a normal node independently, **Pin data** to reuse known output while iterating, and **Runs** to review workflow or step executions. Agent nodes are kept under **All nodes → Advanced agent nodes** because they are optional rather than the default workflow model.
 
 The included **Demo runtime** produces a clearly labeled deterministic AI sample. Selecting OpenAI, Gemini, or Claude intentionally blocks local execution until a secure backend provider connection is configured; the UI does not pretend that a live model call happened.
 

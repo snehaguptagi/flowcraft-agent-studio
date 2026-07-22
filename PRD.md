@@ -1,10 +1,10 @@
 # Flowcraft AI Workflow Builder — Product Requirements Document
 
-**Version:** 3.0
+**Version:** 3.1
 
 **Status:** Approved for workflow-first implementation
 
-**Last updated:** 18 July 2026
+**Last updated:** 22 July 2026
 
 **Product:** Flowcraft AI Workflow Builder
 
@@ -150,12 +150,12 @@ An optional bounded node that may choose among explicitly approved tools over mu
 
 1. Open the app locally or from an optional hosted demo.
 2. Start from the standard AI workflow template or a blank canvas.
-3. Add nodes from the left library.
-4. Connect nodes in execution order.
-5. Select each node and configure it in the right inspector.
-6. Run validation.
-7. Run the workflow.
-8. Inspect logs, intermediate outputs, final outputs, and errors.
+3. Open the contextual node picker or click the plus after an existing node.
+4. Add nodes; contextual additions connect to the preceding step automatically.
+5. Select a node and inspect its input data, configure its parameters, and test its output in one focused editor.
+6. Pin known step output when repeatable test data will speed up iteration.
+7. Run validation and test the complete workflow.
+8. Inspect execution history, logs, intermediate outputs, final outputs, and errors.
 9. Refine, autosave, export, or import the workflow.
 
 ## 11. Functional requirements
@@ -163,6 +163,7 @@ An optional bounded node that may choose among explicitly approved tools over mu
 ### 11.1 Canvas — P0
 
 - Add nodes by click or drag-and-drop.
+- Add and auto-connect the next node from a contextual plus beside an existing step.
 - Move and delete nodes.
 - Connect compatible nodes by port drag-and-drop, two-port clicks, or source-port then target-node clicks.
 - Highlight valid target nodes while a connection is in progress.
@@ -174,10 +175,13 @@ An optional bounded node that may choose among explicitly approved tools over mu
 ### 11.2 Node configuration — P0
 
 - Edit the selected node's name and type-specific settings.
+- Present incoming data, editable parameters, and returned output together for the selected node.
 - Configure prompt text and variables.
 - Configure model provider, model, temperature, and token limit.
 - Configure input values and output formats.
 - Autosave configuration changes locally.
+- Run a supported standard node independently with available upstream or pinned input.
+- Pin or unpin a successful step output for repeatable manual testing.
 
 ### 11.3 Workflow execution — P0
 
@@ -191,6 +195,7 @@ An optional bounded node that may choose among explicitly approved tools over mu
 ### 11.4 Inspection — P0
 
 - Show chronological execution logs.
+- Show an execution-history panel containing workflow and manual step runs.
 - Show intermediate and final outputs.
 - Show validation and runtime errors.
 - Show Agent trace events only when an Agent node runs.
@@ -226,11 +231,11 @@ Use an Agent node only when all of these are true:
 
 ## 13. Product layout
 
-- **Top toolbar:** workflow identity, save state, history, template, save/export, and run.
-- **Left panel:** Input, AI, Logic, optional Agent, and Output libraries.
-- **Center canvas:** nodes, connections, minimap, zoom, and runtime states.
-- **Right panel:** selected-node configuration and latest output.
-- **Bottom panel:** execution log, optional Agent trace, outputs, and errors.
+- **Top toolbar:** workflow identity, save state, template, import/export, and workflow test.
+- **Narrow navigation rail:** editor, contextual node picker, executions, new workflow, and theme.
+- **Canvas:** the default and dominant workspace, with nodes, connections, contextual plus controls, minimap, zoom, and runtime states.
+- **Focused node editor:** selected step input data, parameters, and output data in adjacent panes, with step testing and pinned data.
+- **Run detail drawer:** execution log, optional Agent trace, outputs, and errors.
 
 ## 14. Technical architecture
 
@@ -272,6 +277,9 @@ The MVP is accepted when:
 - The default canvas shows Input → Prompt → Model → Output without an Agent node.
 - A visible Demo workflow control restores a complete runnable workflow.
 - The editor opens canvas-first; the configuration inspector appears only for a selected step and the run console expands when needed.
+- A selected step opens input, parameters, and output together; a supported normal step can be tested independently and its output can be pinned.
+- The contextual plus after a node adds and connects the next selected step.
+- Workflow and step tests appear in execution history with status and duration.
 - Suggested nodes cover the normal workflow path, while optional Agent nodes are disclosed as an advanced capability.
 - The local demo runtime is visibly identified and cannot be mistaken for a live provider call.
 - A user can connect two compatible nodes by dragging from the source's right port to the target's left port.
@@ -301,7 +309,7 @@ The MVP is accepted when:
 - Typed ports and connection compatibility
 - Workflow templates and test cases
 - Secure connector abstractions
-- Better run history and debugging
+- Persisted run history, execution replay, and server-backed debugging
 
 ### Later, only with evidence
 
